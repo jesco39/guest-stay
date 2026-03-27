@@ -1,0 +1,48 @@
+{{template "layout" .}}
+{{define "content"}}
+<div class="card">
+    <div class="calendar-nav">
+        <a href="/calendar?month={{.PrevMonth}}" class="btn btn-sm">&larr; Prev</a>
+        <h2>{{monthName .Month}} {{.Year}}</h2>
+        <a href="/calendar?month={{.NextMonth}}" class="btn btn-sm">Next &rarr;</a>
+    </div>
+
+    <p class="hint">Tap a check-in date, then a check-out date.</p>
+
+    <div class="calendar-grid">
+        <div class="cal-header">Sun</div>
+        <div class="cal-header">Mon</div>
+        <div class="cal-header">Tue</div>
+        <div class="cal-header">Wed</div>
+        <div class="cal-header">Thu</div>
+        <div class="cal-header">Fri</div>
+        <div class="cal-header">Sat</div>
+
+        {{range seq .PadBefore}}
+        <div class="cal-day empty"></div>
+        {{end}}
+
+        {{range .Days}}
+        <div class="cal-day{{if .Blocked}} blocked{{end}}{{if .Past}} past{{end}}"
+             {{if and (not .Blocked) (not .Past)}}data-date="{{.Date}}"{{end}}>
+            {{.Day}}
+        </div>
+        {{end}}
+    </div>
+
+    <div id="selection" class="selection" style="display:none;">
+        <p>Check-in: <strong id="sel-checkin"></strong></p>
+        <p>Check-out: <strong id="sel-checkout"></strong></p>
+        <a id="book-link" href="#" class="btn">Book These Dates</a>
+    </div>
+
+    <div class="legend">
+        <span class="legend-item"><span class="swatch available"></span> Available</span>
+        <span class="legend-item"><span class="swatch blocked"></span> Unavailable</span>
+    </div>
+
+    <p class="text-center"><a href="/logout">Logout</a></p>
+</div>
+
+<script src="/static/calendar.js"></script>
+{{end}}

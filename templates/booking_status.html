@@ -1,0 +1,18 @@
+{{template "layout" .}}
+{{define "content"}}
+<div class="card">
+    <h2>Booking Status</h2>
+    <p>Guest: <strong>{{.GuestName}}</strong></p>
+    <p>Check-in: <strong>{{.CheckIn}}</strong></p>
+    <p>Check-out: <strong>{{.CheckOut}}</strong></p>
+    <p>Status:
+        <span class="status status-{{.Status}}">
+            {{if eq .Status "pending"}}Pending Review
+            {{else if eq .Status "approved"}}Approved
+            {{else if eq .Status "denied"}}Denied
+            {{end}}
+        </span>
+    </p>
+    <p><a href="/calendar">&larr; Back to calendar</a></p>
+</div>
+{{end}}

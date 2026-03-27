@@ -1,0 +1,15 @@
+{{template "layout" .}}
+{{define "content"}}
+<div class="card">
+    <h2>Welcome</h2>
+    <p>Enter the password to book your stay.</p>
+    {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+    <form method="POST" action="/login">
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required autofocus>
+        </div>
+        <button type="submit" class="btn">Enter</button>
+    </form>
+</div>
+{{end}}

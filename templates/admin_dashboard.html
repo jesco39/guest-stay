@@ -1,0 +1,59 @@
+{{template "layout" .}}
+{{define "content"}}
+<div class="card">
+    <h2>Admin Dashboard</h2>
+
+    <h3>Pending Requests ({{len .Pending}})</h3>
+    {{if .Pending}}
+    <div class="booking-list">
+        {{range .Pending}}
+        <div class="booking-card pending">
+            <div class="booking-info">
+                <strong>{{.GuestName}}</strong> ({{.GuestEmail}})
+                <br>{{.CheckIn}} &rarr; {{.CheckOut}}
+                {{if .Message}}<br><em>{{.Message}}</em>{{end}}
+            </div>
+            <div class="booking-actions">
+                <form method="POST" action="/admin/approve/{{.ID}}" style="display:inline">
+                    <button type="submit" class="btn btn-approve">Approve</button>
+                </form>
+                <form method="POST" action="/admin/deny/{{.ID}}" style="display:inline">
+                    <button type="submit" class="btn btn-deny">Deny</button>
+                </form>
+            </div>
+        </div>
+        {{end}}
+    </div>
+    {{else}}
+    <p class="muted">No pending requests.</p>
+    {{end}}
+
+    <h3>Approved ({{len .Approved}})</h3>
+    {{if .Approved}}
+    <div class="booking-list">
+        {{range .Approved}}
+        <div class="booking-card approved">
+            <strong>{{.GuestName}}</strong> &mdash; {{.CheckIn}} &rarr; {{.CheckOut}}
+        </div>
+        {{end}}
+    </div>
+    {{else}}
+    <p class="muted">No approved bookings.</p>
+    {{end}}
+
+    <h3>Denied ({{len .Denied}})</h3>
+    {{if .Denied}}
+    <div class="booking-list">
+        {{range .Denied}}
+        <div class="booking-card denied">
+            <strong>{{.GuestName}}</strong> &mdash; {{.CheckIn}} &rarr; {{.CheckOut}}
+        </div>
+        {{end}}
+    </div>
+    {{else}}
+    <p class="muted">No denied bookings.</p>
+    {{end}}
+
+    <p class="text-center"><a href="/logout">Logout</a></p>
+</div>
+{{end}}
