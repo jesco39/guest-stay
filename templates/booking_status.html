@@ -10,9 +10,16 @@
             {{if eq .Status "pending"}}Pending Review
             {{else if eq .Status "approved"}}Approved
             {{else if eq .Status "denied"}}Denied
+            {{else if eq .Status "cancelled"}}Cancelled
             {{end}}
         </span>
     </p>
+    {{if eq .Status "pending"}}
+    <form method="POST" action="/booking/{{.UUID}}/cancel"
+          onsubmit="return confirm('Are you sure you want to cancel this booking?')">
+        <button type="submit" class="btn btn-deny">Cancel Booking</button>
+    </form>
+    {{end}}
     <p><a href="/calendar">&larr; Back to calendar</a></p>
 </div>
 {{end}}

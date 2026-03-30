@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	Port                 string
+	BaseURL              string
 	GuestPassword        string
 	AdminUsername         string
 	AdminPassword         string
@@ -27,6 +28,7 @@ func loadConfig() (*Config, error) {
 
 	cfg := &Config{
 		Port:                 getEnv("PORT", "8080"),
+		BaseURL:              getEnv("BASE_URL", "https://guest-stay.jesco39.com"),
 		GuestPassword:        getEnv("GUEST_PASSWORD", ""),
 		AdminUsername:         getEnv("ADMIN_USERNAME", "admin"),
 		AdminPassword:         getEnv("ADMIN_PASSWORD", ""),

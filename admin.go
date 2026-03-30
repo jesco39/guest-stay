@@ -32,11 +32,13 @@ func (a *appHandler) handleAdminDashboard(w http.ResponseWriter, r *http.Request
 	pending, _ := listBookings(a.db, "pending")
 	approved, _ := listBookings(a.db, "approved")
 	denied, _ := listBookings(a.db, "denied")
+	cancelled, _ := listBookings(a.db, "cancelled")
 
-	renderTemplate(w,"admin_dashboard.html", map[string]any{
-		"Pending":  pending,
-		"Approved": approved,
-		"Denied":   denied,
+	renderTemplate(w, "admin_dashboard.html", map[string]any{
+		"Pending":   pending,
+		"Approved":  approved,
+		"Denied":    denied,
+		"Cancelled": cancelled,
 	})
 }
 

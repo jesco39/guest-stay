@@ -46,7 +46,8 @@ func main() {
 	mux.HandleFunc("GET /calendar", app.requireGuest(app.handleCalendar))
 	mux.HandleFunc("GET /book", app.requireGuest(app.handleBookingForm))
 	mux.HandleFunc("POST /book", app.requireGuest(app.handleBookPost))
-	mux.HandleFunc("GET /booking/{id}", app.requireGuest(app.handleBookingStatus))
+	mux.HandleFunc("GET /booking/{uuid}", app.requireGuest(app.handleBookingStatus))
+	mux.HandleFunc("POST /booking/{uuid}/cancel", app.requireGuest(app.handleCancelBooking))
 	mux.HandleFunc("GET /logout", app.handleLogout)
 
 	// Admin routes

@@ -54,6 +54,19 @@
     <p class="muted">No denied bookings.</p>
     {{end}}
 
+    <h3>Cancelled ({{len .Cancelled}})</h3>
+    {{if .Cancelled}}
+    <div class="booking-list">
+        {{range .Cancelled}}
+        <div class="booking-card cancelled">
+            <strong>{{.GuestName}}</strong> &mdash; {{.CheckIn}} &rarr; {{.CheckOut}}
+        </div>
+        {{end}}
+    </div>
+    {{else}}
+    <p class="muted">No cancelled bookings.</p>
+    {{end}}
+
     <p class="text-center"><a href="/logout">Logout</a></p>
 </div>
 {{end}}

@@ -2,7 +2,11 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func initDB(path string) (*sql.DB, error) {
@@ -34,11 +38,32 @@ func initDB(path string) (*sql.DB, error) {
 		return nil, err
 	}
 
+	// Migration: add uuid column
+	_, err = db.Exec(`ALTER TABLE bookings ADD COLUMN uuid TEXT`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return nil, err
+	}
+
+	// Backfill existing rows that have no UUID
+	rows, err := db.Query("SELECT id FROM bookings WHERE uuid IS NULL OR uuid = ''")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		db.Exec("UPDATE bookings SET uuid = ? WHERE id = ?", uuid.New().String(), id)
+	}
+
 	return db, nil
 }
 
 type Booking struct {
 	ID              int64
+	UUID            string
 	GuestName       string
 	GuestEmail      string
 	Message         string
@@ -51,10 +76,11 @@ type Booking struct {
 }
 
 func insertBooking(db *sql.DB, b *Booking) error {
+	b.UUID = uuid.New().String()
 	res, err := db.Exec(
-		`INSERT INTO bookings (guest_name, guest_email, message, check_in, check_out, status)
-		 VALUES (?, ?, ?, ?, ?, 'pending')`,
-		b.GuestName, b.GuestEmail, b.Message, b.CheckIn, b.CheckOut,
+		`INSERT INTO bookings (guest_name, guest_email, message, check_in, check_out, status, uuid)
+		 VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+		b.GuestName, b.GuestEmail, b.Message, b.CheckIn, b.CheckOut, b.UUID,
 	)
 	if err != nil {
 		return err
@@ -66,11 +92,29 @@ func insertBooking(db *sql.DB, b *Booking) error {
 func getBooking(db *sql.DB, id int64) (*Booking, error) {
 	b := &Booking{}
 	var createdAt, updatedAt string
+	var calEventID, uid sql.NullString
+	err := db.QueryRow(
+		`SELECT id, uuid, guest_name, guest_email, message, check_in, check_out, status, calendar_event_id, created_at, updated_at
+		 FROM bookings WHERE id = ?`, id,
+	).Scan(&b.ID, &uid, &b.GuestName, &b.GuestEmail, &b.Message, &b.CheckIn, &b.CheckOut, &b.Status, &calEventID, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	b.UUID = uid.String
+	b.CalendarEventID = calEventID.String
+	b.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	b.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+	return b, nil
+}
+
+func getBookingByUUID(db *sql.DB, uid string) (*Booking, error) {
+	b := &Booking{}
+	var createdAt, updatedAt string
 	var calEventID sql.NullString
 	err := db.QueryRow(
-		`SELECT id, guest_name, guest_email, message, check_in, check_out, status, calendar_event_id, created_at, updated_at
-		 FROM bookings WHERE id = ?`, id,
-	).Scan(&b.ID, &b.GuestName, &b.GuestEmail, &b.Message, &b.CheckIn, &b.CheckOut, &b.Status, &calEventID, &createdAt, &updatedAt)
+		`SELECT id, uuid, guest_name, guest_email, message, check_in, check_out, status, calendar_event_id, created_at, updated_at
+		 FROM bookings WHERE uuid = ?`, uid,
+	).Scan(&b.ID, &b.UUID, &b.GuestName, &b.GuestEmail, &b.Message, &b.CheckIn, &b.CheckOut, &b.Status, &calEventID, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -80,8 +124,23 @@ func getBooking(db *sql.DB, id int64) (*Booking, error) {
 	return b, nil
 }
 
+func cancelBooking(db *sql.DB, uid string) error {
+	res, err := db.Exec(
+		`UPDATE bookings SET status = 'cancelled', updated_at = datetime('now')
+		 WHERE uuid = ? AND status = 'pending'`, uid,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("booking not found or not cancellable")
+	}
+	return nil
+}
+
 func listBookings(db *sql.DB, status string) ([]Booking, error) {
-	query := `SELECT id, guest_name, guest_email, message, check_in, check_out, status, calendar_event_id, created_at, updated_at
+	query := `SELECT id, uuid, guest_name, guest_email, message, check_in, check_out, status, calendar_event_id, created_at, updated_at
 		 FROM bookings`
 	var args []any
 	if status != "" {
@@ -100,10 +159,11 @@ func listBookings(db *sql.DB, status string) ([]Booking, error) {
 	for rows.Next() {
 		var b Booking
 		var createdAt, updatedAt string
-		var calEventID sql.NullString
-		if err := rows.Scan(&b.ID, &b.GuestName, &b.GuestEmail, &b.Message, &b.CheckIn, &b.CheckOut, &b.Status, &calEventID, &createdAt, &updatedAt); err != nil {
+		var calEventID, uid sql.NullString
+		if err := rows.Scan(&b.ID, &uid, &b.GuestName, &b.GuestEmail, &b.Message, &b.CheckIn, &b.CheckOut, &b.Status, &calEventID, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
+		b.UUID = uid.String
 		b.CalendarEventID = calEventID.String
 		b.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
 		b.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
