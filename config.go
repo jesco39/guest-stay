@@ -35,7 +35,7 @@ func loadConfig() (*Config, error) {
 		AdminPassword:         getEnv("ADMIN_PASSWORD", ""),
 		GoogleCredentialsFile:    getEnv("GOOGLE_CREDENTIALS_FILE", "./credentials.json"),
 		GoogleCalendarID:         getEnv("GOOGLE_CALENDAR_ID", ""),
-		GoogleLifeCalendarID:     getEnv("GOOGLE_LIFE_CALENDAR_ID", ""),
+		GoogleLifeCalendarID:     getEnv("GOOGLE_LIFE_CALENDAR_ID", getEnv("GOOGLE_CALENDAR_ID", "")),
 		SMTPHost:             getEnv("SMTP_HOST", ""),
 		SMTPPort:             getEnv("SMTP_PORT", "587"),
 		SMTPUsername:         getEnv("SMTP_USERNAME", ""),

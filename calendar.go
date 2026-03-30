@@ -85,6 +85,11 @@ func getGoogleBlockedDates(srv *calendar.Service, calendarID string, month time.
 		if event.Start.Date == "" {
 			continue
 		}
+		// Skip personal travel events (handled by Life calendar availability logic)
+		titleLower := strings.ToLower(event.Summary)
+		if strings.Contains(titleLower, "jesse") || strings.Contains(titleLower, "allison") {
+			continue
+		}
 		start, _ := time.Parse("2006-01-02", event.Start.Date)
 		end, _ := time.Parse("2006-01-02", event.End.Date)
 		end = end.AddDate(0, 0, -1) // end date is exclusive in all-day events
