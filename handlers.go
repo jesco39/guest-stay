@@ -98,10 +98,12 @@ func (a *appHandler) handleGuestLoginPost(w http.ResponseWriter, r *http.Request
 }
 
 type CalendarDay struct {
-	Date    string
-	Day     int
-	Blocked bool
-	Past    bool
+	Date             string
+	Day              int
+	Blocked          bool
+	Past             bool
+	JesseAvailable   bool
+	AllisonAvailable bool
 }
 
 type CalendarData struct {
@@ -145,18 +147,35 @@ func (a *appHandler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error getting Google Calendar dates: %v", err)
 	}
 
+	lifeAvail, err := getLifeCalendarAvailability(a.calService, a.cfg.GoogleLifeCalendarID, firstDay)
+	if err != nil {
+		log.Printf("Error getting Life Calendar availability: %v", err)
+	}
+
 	today := now.Format("2006-01-02")
 	var days []CalendarDay
 	for d := 1; d <= daysInMonth; d++ {
 		date := time.Date(year, month, d, 0, 0, 0, 0, time.Local)
 		dateStr := date.Format("2006-01-02")
-		blocked := bookedDates[dateStr] || blockedDates[dateStr]
+
+		jesseAvail := true
+		allisonAvail := true
+		if ha, ok := lifeAvail[dateStr]; ok {
+			jesseAvail = !ha.JesseAway
+			allisonAvail = !ha.AllisonAway
+		}
+
+		bothAway := !jesseAvail && !allisonAvail
+		blocked := bookedDates[dateStr] || blockedDates[dateStr] || bothAway
 		past := dateStr < today
+
 		days = append(days, CalendarDay{
-			Date:    dateStr,
-			Day:     d,
-			Blocked: blocked,
-			Past:    past,
+			Date:             dateStr,
+			Day:              d,
+			Blocked:          blocked,
+			Past:             past,
+			JesseAvailable:   jesseAvail,
+			AllisonAvailable: allisonAvail,
 		})
 	}
 

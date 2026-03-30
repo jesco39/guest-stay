@@ -184,6 +184,22 @@ input:focus, textarea:focus {
     cursor: not-allowed;
 }
 
+.cal-day.jesse-away {
+    background: #fff3e0;
+}
+
+.cal-day.jesse-away:hover {
+    background: #ffe0b2;
+}
+
+.cal-day.allison-away {
+    background: #e8f5e9;
+}
+
+.cal-day.allison-away:hover {
+    background: #c8e6c9;
+}
+
 .cal-day.selected {
     background: #4a90d9;
     color: #fff;
@@ -230,6 +246,16 @@ input:focus, textarea:focus {
 .swatch.available {
     background: #e8f0fe;
     border: 1px solid #4a90d9;
+}
+
+.swatch.jesse-away {
+    background: #fff3e0;
+    border: 1px solid #e65100;
+}
+
+.swatch.allison-away {
+    background: #e8f5e9;
+    border: 1px solid #2e7d32;
 }
 
 .swatch.blocked {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +23,25 @@ type cacheEntry struct {
 
 var calCache = &calendarCache{
 	entries: make(map[string]cacheEntry),
+}
+
+type HostAvailability struct {
+	JesseAway   bool
+	AllisonAway bool
+}
+
+type lifeCacheEntry struct {
+	availability map[string]HostAvailability
+	expires      time.Time
+}
+
+type lifeCalendarCache struct {
+	mu      sync.Mutex
+	entries map[string]lifeCacheEntry
+}
+
+var lifeCalCache = &lifeCalendarCache{
+	entries: make(map[string]lifeCacheEntry),
 }
 
 func initCalendarService(credentialsFile string) (*calendar.Service, error) {
@@ -63,6 +83,11 @@ func getGoogleBlockedDates(srv *calendar.Service, calendarID string, month time.
 	for _, event := range events.Items {
 		// Only block on all-day events; skip time-based entries
 		if event.Start.Date == "" {
+			continue
+		}
+		// Skip personal travel events (handled by Life calendar availability logic)
+		titleLower := strings.ToLower(event.Summary)
+		if strings.Contains(titleLower, "jesse") || strings.Contains(titleLower, "allison") {
 			continue
 		}
 		start, _ := time.Parse("2006-01-02", event.Start.Date)
@@ -131,4 +156,66 @@ func addBookingToCalendar(srv *calendar.Service, calendarID string, b *Booking) 
 	calCache.mu.Unlock()
 
 	return created.Id, nil
+}
+
+func getLifeCalendarAvailability(srv *calendar.Service, calendarID string, month time.Time) (map[string]HostAvailability, error) {
+	if srv == nil || calendarID == "" {
+		return nil, nil
+	}
+
+	key := month.Format("2006-01")
+
+	lifeCalCache.mu.Lock()
+	if entry, ok := lifeCalCache.entries[key]; ok && time.Now().Before(entry.expires) {
+		lifeCalCache.mu.Unlock()
+		return entry.availability, nil
+	}
+	lifeCalCache.mu.Unlock()
+
+	firstDay := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, time.UTC)
+	lastDay := firstDay.AddDate(0, 1, 0)
+
+	events, err := srv.Events.List(calendarID).
+		TimeMin(firstDay.Format(time.RFC3339)).
+		TimeMax(lastDay.Format(time.RFC3339)).
+		SingleEvents(true).
+		Do()
+	if err != nil {
+		return nil, err
+	}
+
+	avail := make(map[string]HostAvailability)
+	for _, event := range events.Items {
+		if event.Start.Date == "" {
+			continue
+		}
+
+		titleLower := strings.ToLower(event.Summary)
+		jesseMatch := strings.Contains(titleLower, "jesse")
+		allisonMatch := strings.Contains(titleLower, "allison")
+
+		jesseAway := jesseMatch || (!jesseMatch && !allisonMatch)
+		allisonAway := allisonMatch || (!jesseMatch && !allisonMatch)
+
+		start, _ := time.Parse("2006-01-02", event.Start.Date)
+		end, _ := time.Parse("2006-01-02", event.End.Date)
+		end = end.AddDate(0, 0, -1) // end date is exclusive in all-day events
+		for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+			dateStr := d.Format("2006-01-02")
+			ha := avail[dateStr]
+			if jesseAway {
+				ha.JesseAway = true
+			}
+			if allisonAway {
+				ha.AllisonAway = true
+			}
+			avail[dateStr] = ha
+		}
+	}
+
+	lifeCalCache.mu.Lock()
+	lifeCalCache.entries[key] = lifeCacheEntry{availability: avail, expires: time.Now().Add(5 * time.Minute)}
+	lifeCalCache.mu.Unlock()
+
+	return avail, nil
 }

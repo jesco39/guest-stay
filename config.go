@@ -13,8 +13,9 @@ type Config struct {
 	GuestPassword        string
 	AdminUsername         string
 	AdminPassword         string
-	GoogleCredentialsFile string
-	GoogleCalendarID     string
+	GoogleCredentialsFile    string
+	GoogleCalendarID         string
+	GoogleLifeCalendarID     string
 	SMTPHost             string
 	SMTPPort             string
 	SMTPUsername          string
@@ -32,8 +33,9 @@ func loadConfig() (*Config, error) {
 		GuestPassword:        getEnv("GUEST_PASSWORD", ""),
 		AdminUsername:         getEnv("ADMIN_USERNAME", "admin"),
 		AdminPassword:         getEnv("ADMIN_PASSWORD", ""),
-		GoogleCredentialsFile: getEnv("GOOGLE_CREDENTIALS_FILE", "./credentials.json"),
-		GoogleCalendarID:     getEnv("GOOGLE_CALENDAR_ID", ""),
+		GoogleCredentialsFile:    getEnv("GOOGLE_CREDENTIALS_FILE", "./credentials.json"),
+		GoogleCalendarID:         getEnv("GOOGLE_CALENDAR_ID", ""),
+		GoogleLifeCalendarID:     getEnv("GOOGLE_LIFE_CALENDAR_ID", getEnv("GOOGLE_CALENDAR_ID", "")),
 		SMTPHost:             getEnv("SMTP_HOST", ""),
 		SMTPPort:             getEnv("SMTP_PORT", "587"),
 		SMTPUsername:         getEnv("SMTP_USERNAME", ""),

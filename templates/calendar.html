@@ -23,7 +23,7 @@
         {{end}}
 
         {{range .Days}}
-        <div class="cal-day{{if .Blocked}} blocked{{end}}{{if .Past}} past{{end}}"
+        <div class="cal-day{{if .Blocked}} blocked{{end}}{{if .Past}} past{{end}}{{if and (not .Blocked) (not .Past) (not .JesseAvailable) .AllisonAvailable}} jesse-away{{end}}{{if and (not .Blocked) (not .Past) .JesseAvailable (not .AllisonAvailable)}} allison-away{{end}}"
              {{if and (not .Blocked) (not .Past)}}data-date="{{.Date}}"{{end}}>
             {{.Day}}
         </div>
@@ -37,7 +37,9 @@
     </div>
 
     <div class="legend">
-        <span class="legend-item"><span class="swatch available"></span> Available</span>
+        <span class="legend-item"><span class="swatch available"></span> Both available</span>
+        <span class="legend-item"><span class="swatch jesse-away"></span> Jesse away</span>
+        <span class="legend-item"><span class="swatch allison-away"></span> Allison away</span>
         <span class="legend-item"><span class="swatch blocked"></span> Unavailable</span>
     </div>
 
