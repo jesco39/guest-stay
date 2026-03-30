@@ -56,6 +56,7 @@ func main() {
 	mux.HandleFunc("GET /admin", app.requireAdmin(app.handleAdminDashboard))
 	mux.HandleFunc("POST /admin/approve/{id}", app.requireAdmin(app.handleApprove))
 	mux.HandleFunc("POST /admin/deny/{id}", app.requireAdmin(app.handleDeny))
+	mux.HandleFunc("POST /admin/cancel/{id}", app.requireAdmin(app.handleAdminCancel))
 
 	// Wrap with request logging
 	logged := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

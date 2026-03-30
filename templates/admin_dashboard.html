@@ -33,7 +33,16 @@
     <div class="booking-list">
         {{range .Approved}}
         <div class="booking-card approved">
-            <strong>{{.GuestName}}</strong> &mdash; {{.CheckIn}} &rarr; {{.CheckOut}}
+            <div class="booking-info">
+                <strong>{{.GuestName}}</strong> ({{.GuestEmail}})
+                <br>{{.CheckIn}} &rarr; {{.CheckOut}}
+            </div>
+            <div class="booking-actions">
+                <form method="POST" action="/admin/cancel/{{.ID}}" style="display:inline"
+                      onsubmit="return confirm('Cancel this booking and notify the guest?')">
+                    <button type="submit" class="btn btn-deny">Cancel</button>
+                </form>
+            </div>
         </div>
         {{end}}
     </div>

@@ -80,6 +80,27 @@ func getGoogleBlockedDates(srv *calendar.Service, calendarID string, month time.
 	return dates, nil
 }
 
+func removeBookingFromCalendar(srv *calendar.Service, calendarID string, b *Booking) error {
+	if srv == nil || calendarID == "" || b.CalendarEventID == "" {
+		return nil
+	}
+
+	err := srv.Events.Delete(calendarID, b.CalendarEventID).Do()
+	if err != nil {
+		return err
+	}
+
+	// Invalidate cache for affected months
+	start, _ := time.Parse("2006-01-02", b.CheckIn)
+	checkOut, _ := time.Parse("2006-01-02", b.CheckOut)
+	calCache.mu.Lock()
+	delete(calCache.entries, start.Format("2006-01"))
+	delete(calCache.entries, checkOut.Format("2006-01"))
+	calCache.mu.Unlock()
+
+	return nil
+}
+
 func addBookingToCalendar(srv *calendar.Service, calendarID string, b *Booking) (string, error) {
 	if srv == nil || calendarID == "" {
 		log.Println("Google Calendar not configured, skipping event creation")
