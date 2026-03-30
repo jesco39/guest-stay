@@ -74,6 +74,35 @@ func (a *appHandler) handleApprove(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
+func (a *appHandler) handleAdminCancel(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	b, err := getBooking(a.db, id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := updateBookingStatus(a.db, id, "cancelled"); err != nil {
+		log.Printf("Error cancelling booking: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := removeBookingFromCalendar(a.calService, a.cfg.GoogleCalendarID, b); err != nil {
+		log.Printf("Error removing calendar event: %v", err)
+	}
+
+	go notifyGuestCancelled(a.cfg, b)
+
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
 func (a *appHandler) handleDeny(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)

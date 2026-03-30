@@ -89,6 +89,25 @@ Best regards`,
 	}
 }
 
+func notifyGuestCancelled(cfg *Config, b *Booking) {
+	subject := "Guest Stay Booking Cancelled"
+	body := fmt.Sprintf(`Hi %s,
+
+Your booking for %s to %s has been cancelled.
+
+If you have any questions, please reach out to us. Feel free to book again for different dates!
+
+View your booking details:
+%s/booking/%s
+
+Best regards`,
+		b.GuestName, b.CheckIn, b.CheckOut, cfg.BaseURL, b.UUID)
+
+	if err := sendEmail(cfg, b.GuestEmail, subject, body); err != nil {
+		log.Printf("Error sending cancellation email to %s: %v", b.GuestEmail, err)
+	}
+}
+
 func smtpConfigured(cfg *Config) bool {
 	return cfg.SMTPHost != "" && cfg.SMTPUsername != "" && cfg.SMTPPassword != ""
 }
