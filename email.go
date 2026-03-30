@@ -39,8 +39,9 @@ Check-in: %s
 Check-out: %s
 Message: %s
 
-Log in to the admin dashboard to approve or deny this request.`,
-		b.GuestName, b.GuestEmail, b.CheckIn, b.CheckOut, b.Message)
+Review and approve or deny this request:
+%s/admin/login`,
+		b.GuestName, b.GuestEmail, b.CheckIn, b.CheckOut, b.Message, cfg.BaseURL)
 
 	for _, email := range cfg.AdminEmails {
 		if err := sendEmail(cfg, email, subject, body); err != nil {
@@ -58,8 +59,11 @@ Great news! Your stay has been approved.
 Check-in: %s
 Check-out: %s
 
-We look forward to having you!`,
-		b.GuestName, b.CheckIn, b.CheckOut)
+We look forward to having you!
+
+View your booking details:
+%s/booking/%s`,
+		b.GuestName, b.CheckIn, b.CheckOut, cfg.BaseURL, b.UUID)
 
 	if err := sendEmail(cfg, b.GuestEmail, subject, body); err != nil {
 		log.Printf("Error sending approval email to %s: %v", b.GuestEmail, err)
@@ -74,8 +78,11 @@ Unfortunately, your stay request for %s to %s could not be accommodated at this 
 
 Please feel free to try different dates!
 
+View your booking details:
+%s/booking/%s
+
 Best regards`,
-		b.GuestName, b.CheckIn, b.CheckOut)
+		b.GuestName, b.CheckIn, b.CheckOut, cfg.BaseURL, b.UUID)
 
 	if err := sendEmail(cfg, b.GuestEmail, subject, body); err != nil {
 		log.Printf("Error sending denial email to %s: %v", b.GuestEmail, err)

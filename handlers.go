@@ -5,7 +5,6 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -230,18 +229,22 @@ func (a *appHandler) handleBookingForm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *appHandler) handleBookingStatus(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	uid := r.PathValue("uuid")
+	b, err := getBookingByUUID(a.db, uid)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	b, err := getBooking(a.db, id)
-	if err != nil {
-		http.NotFound(w, r)
+	renderTemplate(w, "booking_status.html", b)
+}
+
+func (a *appHandler) handleCancelBooking(w http.ResponseWriter, r *http.Request) {
+	uid := r.PathValue("uuid")
+	if err := cancelBooking(a.db, uid); err != nil {
+		http.Error(w, "Unable to cancel booking", http.StatusBadRequest)
 		return
 	}
-	renderTemplate(w,"booking_status.html", b)
+	http.Redirect(w, r, "/booking/"+uid, http.StatusSeeOther)
 }
 
 func (a *appHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
