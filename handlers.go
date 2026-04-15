@@ -224,6 +224,16 @@ func (a *appHandler) handleBookPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate no blocked dates in the requested range
+	if err := a.validateNoBlockedDates(checkIn, checkOut); err != nil {
+		renderTemplate(w,"booking_form.html", map[string]any{
+			"Error":    err.Error(),
+			"CheckIn":  checkIn,
+			"CheckOut": checkOut,
+		})
+		return
+	}
+
 	b := &Booking{
 		GuestName:  name,
 		GuestEmail: email,
@@ -268,6 +278,45 @@ func (a *appHandler) handleCancelBooking(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	http.Redirect(w, r, "/booking/"+uid, http.StatusSeeOther)
+}
+
+func (a *appHandler) validateNoBlockedDates(checkIn, checkOut string) error {
+	start, err := time.Parse("2006-01-02", checkIn)
+	if err != nil {
+		return fmt.Errorf("Invalid check-in date")
+	}
+	end, err := time.Parse("2006-01-02", checkOut)
+	if err != nil {
+		return fmt.Errorf("Invalid check-out date")
+	}
+
+	bookedDates, err := getBookedDates(a.db, checkIn, checkOut)
+	if err != nil {
+		return fmt.Errorf("Unable to verify availability")
+	}
+
+	// Collect Google Calendar blocked dates for each month in the range
+	googleBlocked := make(map[string]bool)
+	for m := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, time.Local); !m.After(end); m = m.AddDate(0, 1, 0) {
+		dates, err := getGoogleBlockedDates(a.calService, a.cfg.GoogleLifeCalendarID, m)
+		if err != nil {
+			log.Printf("Error checking Google Calendar for %s: %v", m.Format("2006-01"), err)
+			continue
+		}
+		for k, v := range dates {
+			googleBlocked[k] = v
+		}
+	}
+
+	// Check each day in the range
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		dateStr := d.Format("2006-01-02")
+		if bookedDates[dateStr] || googleBlocked[dateStr] {
+			return fmt.Errorf("Some dates in your requested stay are unavailable. Please choose different dates.")
+		}
+	}
+
+	return nil
 }
 
 func (a *appHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
