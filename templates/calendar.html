@@ -24,7 +24,7 @@
 
         {{range .Days}}
         <div class="cal-day{{if .Blocked}} blocked{{end}}{{if .Past}} past{{end}}{{if and (not .Blocked) (not .Past) (not .JesseAvailable) .AllisonAvailable}} jesse-away{{end}}{{if and (not .Blocked) (not .Past) .JesseAvailable (not .AllisonAvailable)}} allison-away{{end}}"
-             {{if and (not .Blocked) (not .Past)}}data-date="{{.Date}}"{{end}}>
+             data-date="{{.Date}}">
             {{.Day}}
         </div>
         {{end}}

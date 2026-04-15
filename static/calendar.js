@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', function() {
     let checkIn = (typeof serverCheckIn !== 'undefined' && serverCheckIn) ? serverCheckIn : null;
     let checkOut = null;
-    const days = document.querySelectorAll('.cal-day[data-date]');
+    const days = document.querySelectorAll('.cal-day[data-date]:not(.blocked):not(.past)');
     const selection = document.getElementById('selection');
     const selCheckIn = document.getElementById('sel-checkin');
     const selCheckOut = document.getElementById('sel-checkout');
