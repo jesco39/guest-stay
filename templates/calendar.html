@@ -2,9 +2,9 @@
 {{define "content"}}
 <div class="card">
     <div class="calendar-nav">
-        <a href="/calendar?month={{.PrevMonth}}" class="btn btn-sm">&larr; Prev</a>
+        <a id="nav-prev" href="/calendar?month={{.PrevMonth}}{{if .CheckIn}}&check_in={{.CheckIn}}{{end}}" class="btn btn-sm">&larr; Prev</a>
         <h2>{{monthName .Month}} {{.Year}}</h2>
-        <a href="/calendar?month={{.NextMonth}}" class="btn btn-sm">Next &rarr;</a>
+        <a id="nav-next" href="/calendar?month={{.NextMonth}}{{if .CheckIn}}&check_in={{.CheckIn}}{{end}}" class="btn btn-sm">Next &rarr;</a>
     </div>
 
     <p class="hint">Tap a check-in date, then a check-out date.</p>
@@ -46,5 +46,6 @@
     <p class="text-center"><a href="/logout">Logout</a></p>
 </div>
 
+<script>var serverCheckIn = "{{.CheckIn}}";</script>
 <script src="/static/calendar.js"></script>
 {{end}}

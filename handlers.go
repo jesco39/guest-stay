@@ -114,6 +114,7 @@ type CalendarData struct {
 	PadBefore  int
 	PrevMonth  string
 	NextMonth  string
+	CheckIn    string
 	Error      string
 }
 
@@ -142,7 +143,7 @@ func (a *appHandler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		bookedDates = make(map[string]bool)
 	}
 
-	blockedDates, err := getGoogleBlockedDates(a.calService, a.cfg.GoogleCalendarID, firstDay)
+	blockedDates, err := getGoogleBlockedDates(a.calService, a.cfg.GoogleLifeCalendarID, firstDay)
 	if err != nil {
 		log.Printf("Error getting Google Calendar dates: %v", err)
 	}
@@ -182,6 +183,8 @@ func (a *appHandler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 	prev := firstDay.AddDate(0, -1, 0)
 	next := firstDay.AddDate(0, 1, 0)
 
+	selectedCheckIn := r.URL.Query().Get("check_in")
+
 	data := CalendarData{
 		Year:      year,
 		Month:     month,
@@ -190,6 +193,7 @@ func (a *appHandler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		PadBefore: padBefore,
 		PrevMonth: fmt.Sprintf("%d-%02d", prev.Year(), prev.Month()),
 		NextMonth: fmt.Sprintf("%d-%02d", next.Year(), next.Month()),
+		CheckIn:   selectedCheckIn,
 	}
 
 	renderTemplate(w,"calendar.html", data)
