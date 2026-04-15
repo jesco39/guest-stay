@@ -295,23 +295,39 @@ func (a *appHandler) validateNoBlockedDates(checkIn, checkOut string) error {
 		return fmt.Errorf("Unable to verify availability")
 	}
 
-	// Collect Google Calendar blocked dates for each month in the range
+	// Collect Google Calendar blocked dates and host availability for each month in the range
 	googleBlocked := make(map[string]bool)
+	lifeAvail := make(map[string]HostAvailability)
 	for m := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, time.Local); !m.After(end); m = m.AddDate(0, 1, 0) {
 		dates, err := getGoogleBlockedDates(a.calService, a.cfg.GoogleLifeCalendarID, m)
 		if err != nil {
 			log.Printf("Error checking Google Calendar for %s: %v", m.Format("2006-01"), err)
-			continue
 		}
 		for k, v := range dates {
 			googleBlocked[k] = v
 		}
+
+		avail, err := getLifeCalendarAvailability(a.calService, a.cfg.GoogleLifeCalendarID, m)
+		if err != nil {
+			log.Printf("Error checking life calendar for %s: %v", m.Format("2006-01"), err)
+		}
+		for k, v := range avail {
+			lifeAvail[k] = v
+		}
 	}
 
-	// Check each day in the range
+	// Check each day in the range using the same logic as the calendar view
+	today := time.Now().Format("2006-01-02")
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
-		if bookedDates[dateStr] || googleBlocked[dateStr] {
+		if dateStr < today {
+			return fmt.Errorf("Some dates in your requested stay are in the past. Please choose different dates.")
+		}
+		bothAway := false
+		if ha, ok := lifeAvail[dateStr]; ok {
+			bothAway = ha.JesseAway && ha.AllisonAway
+		}
+		if bookedDates[dateStr] || googleBlocked[dateStr] || bothAway {
 			return fmt.Errorf("Some dates in your requested stay are unavailable. Please choose different dates.")
 		}
 	}
