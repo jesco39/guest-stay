@@ -1,11 +1,31 @@
 document.addEventListener('DOMContentLoaded', function() {
-    let checkIn = null;
+    let checkIn = (typeof serverCheckIn !== 'undefined' && serverCheckIn) ? serverCheckIn : null;
     let checkOut = null;
     const days = document.querySelectorAll('.cal-day[data-date]');
     const selection = document.getElementById('selection');
     const selCheckIn = document.getElementById('sel-checkin');
     const selCheckOut = document.getElementById('sel-checkout');
     const bookLink = document.getElementById('book-link');
+    const navPrev = document.getElementById('nav-prev');
+    const navNext = document.getElementById('nav-next');
+
+    // If we have a persisted check-in from a previous month, show the banner
+    if (checkIn) {
+        selCheckIn.textContent = checkIn;
+        selCheckOut.textContent = '(select checkout)';
+        bookLink.style.display = 'none';
+        selection.style.display = 'block';
+    }
+
+    function updateNavLinks() {
+        [navPrev, navNext].forEach(function(link) {
+            var href = link.href.replace(/&check_in=[^&]*/g, '');
+            if (checkIn && !checkOut) {
+                href += '&check_in=' + checkIn;
+            }
+            link.href = href;
+        });
+    }
 
     days.forEach(function(day) {
         day.addEventListener('click', function() {
@@ -17,16 +37,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 checkOut = null;
                 clearHighlights();
                 this.classList.add('selected');
-                selection.style.display = 'none';
+                selCheckIn.textContent = checkIn;
+                selCheckOut.textContent = '(select checkout)';
+                bookLink.style.display = 'none';
+                selection.style.display = 'block';
+                updateNavLinks();
             } else {
                 // Second click
                 if (date <= checkIn) {
-                    // Clicked before check-in, reset
+                    // Clicked before or on check-in, reset
                     checkIn = date;
                     checkOut = null;
                     clearHighlights();
                     this.classList.add('selected');
-                    selection.style.display = 'none';
+                    selCheckIn.textContent = checkIn;
+                    selCheckOut.textContent = '(select checkout)';
+                    bookLink.style.display = 'none';
+                    updateNavLinks();
                     return;
                 }
 
@@ -36,6 +63,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     checkOut = null;
                     clearHighlights();
                     this.classList.add('selected');
+                    selCheckIn.textContent = checkIn;
+                    selCheckOut.textContent = '(select checkout)';
+                    bookLink.style.display = 'none';
+                    updateNavLinks();
                     return;
                 }
 
@@ -45,7 +76,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 selCheckIn.textContent = checkIn;
                 selCheckOut.textContent = checkOut;
                 bookLink.href = '/book?check_in=' + checkIn + '&check_out=' + checkOut;
+                bookLink.style.display = '';
                 selection.style.display = 'block';
+                updateNavLinks();
             }
         });
     });

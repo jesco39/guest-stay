@@ -62,7 +62,7 @@ func (a *appHandler) handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eventID, err := addBookingToCalendar(a.calService, a.cfg.GoogleCalendarID, b)
+	eventID, err := addBookingToCalendar(a.calService, a.cfg.GoogleLifeCalendarID, b)
 	if err != nil {
 		log.Printf("Error adding to calendar: %v", err)
 	} else if eventID != "" {
@@ -94,7 +94,7 @@ func (a *appHandler) handleAdminCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := removeBookingFromCalendar(a.calService, a.cfg.GoogleCalendarID, b); err != nil {
+	if err := removeBookingFromCalendar(a.calService, a.cfg.GoogleLifeCalendarID, b); err != nil {
 		log.Printf("Error removing calendar event: %v", err)
 	}
 
