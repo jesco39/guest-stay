@@ -164,6 +164,14 @@ input:focus, textarea:focus {
     cursor: pointer;
     transition: background 0.15s;
     touch-action: manipulation;
+    /* reset <button> browser defaults */
+    border: none;
+    background: none;
+    font: inherit;
+    color: inherit;
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
 }
 
 @media (hover: hover) {
