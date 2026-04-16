@@ -1,5 +1,8 @@
 document.addEventListener('DOMContentLoaded', function() {
-    let checkIn = (typeof serverCheckIn !== 'undefined' && serverCheckIn) ? serverCheckIn : null;
+    // URL param is authoritative; fall back to sessionStorage for cross-month handoff on iOS
+    let checkIn = (typeof serverCheckIn !== 'undefined' && serverCheckIn)
+        ? serverCheckIn
+        : (sessionStorage.getItem('checkIn') || null);
     let checkOut = null;
     const days = document.querySelectorAll('.cal-day[data-date]:not(.blocked):not(.past)');
     const selection = document.getElementById('selection');
@@ -11,6 +14,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // If we have a persisted check-in from a previous month, show the banner
     if (checkIn) {
+        sessionStorage.setItem('checkIn', checkIn);
         selCheckIn.textContent = checkIn;
         selCheckOut.textContent = '(select checkout)';
         bookLink.style.display = 'none';
@@ -35,6 +39,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // First click or reset
                 checkIn = date;
                 checkOut = null;
+                sessionStorage.setItem('checkIn', checkIn);
                 clearHighlights();
                 this.classList.add('selected');
                 selCheckIn.textContent = checkIn;
@@ -48,6 +53,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Clicked before or on check-in, reset
                     checkIn = date;
                     checkOut = null;
+                    sessionStorage.setItem('checkIn', checkIn);
                     clearHighlights();
                     this.classList.add('selected');
                     selCheckIn.textContent = checkIn;
@@ -61,6 +67,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (hasBlockedInRange(checkIn, date)) {
                     checkIn = date;
                     checkOut = null;
+                    sessionStorage.setItem('checkIn', checkIn);
                     clearHighlights();
                     this.classList.add('selected');
                     selCheckIn.textContent = checkIn;
@@ -71,6 +78,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
 
                 checkOut = date;
+                sessionStorage.removeItem('checkIn');
                 highlightRange(checkIn, checkOut);
 
                 selCheckIn.textContent = checkIn;

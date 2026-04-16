@@ -163,10 +163,21 @@ input:focus, textarea:focus {
     justify-content: center;
     cursor: pointer;
     transition: background 0.15s;
+    touch-action: manipulation;
 }
 
-.cal-day:hover:not(.blocked):not(.past):not(.empty) {
-    background: #e8f0fe;
+@media (hover: hover) {
+    .cal-day:hover:not(.blocked):not(.past):not(.empty) {
+        background: #e8f0fe;
+    }
+
+    .cal-day.jesse-away:hover {
+        background: #ffe0b2;
+    }
+
+    .cal-day.allison-away:hover {
+        background: #c8e6c9;
+    }
 }
 
 .cal-day.empty {
@@ -188,16 +199,8 @@ input:focus, textarea:focus {
     background: #fff3e0;
 }
 
-.cal-day.jesse-away:hover {
-    background: #ffe0b2;
-}
-
 .cal-day.allison-away {
     background: #e8f5e9;
-}
-
-.cal-day.allison-away:hover {
-    background: #c8e6c9;
 }
 
 .cal-day.selected {
