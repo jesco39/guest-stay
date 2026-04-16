@@ -19,6 +19,11 @@ document.addEventListener('DOMContentLoaded', function() {
         selCheckOut.textContent = '(select checkout)';
         bookLink.style.display = 'none';
         selection.style.display = 'block';
+        var checkInCell = document.querySelector('.cal-day[data-date="' + checkIn + '"]');
+        if (checkInCell) {
+            checkInCell.classList.add('selected');
+        }
+        updateNavLinks();
     }
 
     function updateNavLinks() {
