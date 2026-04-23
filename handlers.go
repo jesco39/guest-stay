@@ -39,11 +39,18 @@ func initTemplates() {
 
 	pageTemplates = make(map[string]*template.Template)
 	for _, p := range pages {
-		t := template.Must(template.Must(layout.Clone()).ParseFiles(p))
-		// Extract filename as the template key
+		var t *template.Template
+		if p == "templates/calendar.html" {
+			t = template.Must(template.Must(layout.Clone()).ParseFiles(p, "templates/month.html"))
+		} else {
+			t = template.Must(template.Must(layout.Clone()).ParseFiles(p))
+		}
 		name := p[len("templates/"):]
 		pageTemplates[name] = t
 	}
+
+	// Standalone month fragment for the lazy-load endpoint
+	pageTemplates["month.html"] = template.Must(template.New("month-frag").Funcs(funcMap).ParseFiles("templates/month.html"))
 }
 
 func renderTemplate(w http.ResponseWriter, name string, data any) {
@@ -106,54 +113,44 @@ type CalendarDay struct {
 	AllisonAvailable bool
 }
 
-type CalendarData struct {
-	Year       int
-	Month      time.Month
-	MonthStr   string
-	Days       []CalendarDay
-	PadBefore  int
-	PrevMonth  string
-	NextMonth  string
-	CheckIn    string
-	Error      string
+type MonthData struct {
+	Year      int
+	Month     time.Month
+	Days      []CalendarDay
+	PadBefore int
 }
 
-func (a *appHandler) handleCalendar(w http.ResponseWriter, r *http.Request) {
-	now := time.Now()
-	year, month := now.Year(), now.Month()
+type CalendarData struct {
+	Months        []MonthData
+	SentinelMonth string
+	Today         string
+}
 
-	if m := r.URL.Query().Get("month"); m != "" {
-		t, err := time.Parse("2006-01", m)
-		if err == nil {
-			year, month = t.Year(), t.Month()
-		}
-	}
-
+func (a *appHandler) buildMonthData(year int, month time.Month) MonthData {
 	firstDay := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
 	lastDay := firstDay.AddDate(0, 1, -1)
 	daysInMonth := lastDay.Day()
-	padBefore := int(firstDay.Weekday())
 
 	monthStart := firstDay.Format("2006-01-02")
 	monthEnd := lastDay.Format("2006-01-02")
 
 	bookedDates, err := getBookedDates(a.db, monthStart, monthEnd)
 	if err != nil {
-		log.Printf("Error getting booked dates: %v", err)
+		log.Printf("Error getting booked dates for %s: %v", firstDay.Format("2006-01"), err)
 		bookedDates = make(map[string]bool)
 	}
 
 	blockedDates, err := getGoogleBlockedDates(a.calService, a.cfg.GoogleLifeCalendarID, firstDay)
 	if err != nil {
-		log.Printf("Error getting Google Calendar dates: %v", err)
+		log.Printf("Error getting Google Calendar dates for %s: %v", firstDay.Format("2006-01"), err)
 	}
 
 	lifeAvail, err := getLifeCalendarAvailability(a.calService, a.cfg.GoogleLifeCalendarID, firstDay)
 	if err != nil {
-		log.Printf("Error getting Life Calendar availability: %v", err)
+		log.Printf("Error getting Life Calendar availability for %s: %v", firstDay.Format("2006-01"), err)
 	}
 
-	today := now.Format("2006-01-02")
+	today := time.Now().Format("2006-01-02")
 	var days []CalendarDay
 	for d := 1; d <= daysInMonth; d++ {
 		date := time.Date(year, month, d, 0, 0, 0, 0, time.Local)
@@ -180,23 +177,51 @@ func (a *appHandler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	prev := firstDay.AddDate(0, -1, 0)
-	next := firstDay.AddDate(0, 1, 0)
-
-	selectedCheckIn := r.URL.Query().Get("check_in")
-
-	data := CalendarData{
+	return MonthData{
 		Year:      year,
 		Month:     month,
-		MonthStr:  fmt.Sprintf("%d-%02d", year, month),
 		Days:      days,
-		PadBefore: padBefore,
-		PrevMonth: fmt.Sprintf("%d-%02d", prev.Year(), prev.Month()),
-		NextMonth: fmt.Sprintf("%d-%02d", next.Year(), next.Month()),
-		CheckIn:   selectedCheckIn,
+		PadBefore: int(firstDay.Weekday()),
+	}
+}
+
+func (a *appHandler) handleCalendar(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+
+	months := make([]MonthData, 3)
+	for i := range months {
+		m := start.AddDate(0, i, 0)
+		months[i] = a.buildMonthData(m.Year(), m.Month())
 	}
 
-	renderTemplate(w,"calendar.html", data)
+	sentinel := start.AddDate(0, 3, 0)
+	data := CalendarData{
+		Months:        months,
+		SentinelMonth: fmt.Sprintf("%d-%02d", sentinel.Year(), sentinel.Month()),
+		Today:         now.Format("2006-01-02"),
+	}
+
+	renderTemplate(w, "calendar.html", data)
+}
+
+func (a *appHandler) handleCalendarMonth(w http.ResponseWriter, r *http.Request) {
+	t, err := time.Parse("2006-01", r.URL.Query().Get("m"))
+	if err != nil {
+		http.Error(w, "Invalid month", http.StatusBadRequest)
+		return
+	}
+
+	md := a.buildMonthData(t.Year(), t.Month())
+
+	tmpl, ok := pageTemplates["month.html"]
+	if !ok {
+		http.Error(w, "Template not found", http.StatusInternalServerError)
+		return
+	}
+	if err := tmpl.ExecuteTemplate(w, "month", md); err != nil {
+		log.Printf("Template error rendering month fragment: %v", err)
+	}
 }
 
 func (a *appHandler) handleBookPost(w http.ResponseWriter, r *http.Request) {

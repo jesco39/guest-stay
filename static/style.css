@@ -119,16 +119,19 @@ input:focus, textarea:focus {
 }
 
 /* Calendar */
-.calendar-nav {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
+.cal-month {
+    margin-bottom: 2rem;
 }
 
-.calendar-nav h2 {
-    margin: 0;
-    font-size: 1.2rem;
+.cal-month-header {
+    position: sticky;
+    top: 0;
+    background: #fff;
+    z-index: 2;
+    padding: 0.5rem 0;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 1.1rem;
 }
 
 .hint {
@@ -221,11 +224,15 @@ input:focus, textarea:focus {
 }
 
 .selection {
-    margin-top: 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    margin-bottom: 1rem;
     padding: 1rem;
     background: #e8f0fe;
     border-radius: 8px;
     text-align: center;
+    box-shadow: 0 2px 6px rgba(74, 144, 217, 0.25);
 }
 
 .selection .btn {
