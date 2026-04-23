@@ -1,16 +1,42 @@
 #!/bin/bash
-# Deploy guest-stay to a GCP Compute Engine VM.
-# Usage: ./deploy.sh <vm-ip-or-hostname> [ssh-user]
+# Deploy guest-stay to the GCP Compute Engine VM.
+# Usage: ./deploy.sh <host-or-url> [ssh-user]
 #
-# Example: ./deploy.sh 34.56.78.90
-#          ./deploy.sh 34.56.78.90 jesco
+# Examples:
+#   ./deploy.sh https://guest-stay.jesco39.com
+#   ./deploy.sh guest-stay.jesco39.com
+#   ./deploy.sh 34.56.78.90
+#   ./deploy.sh 34.56.78.90 someone-else
 
 set -euo pipefail
 
-REMOTE_HOST="${1:?Usage: ./deploy.sh <vm-ip-or-hostname> [ssh-user]}"
-REMOTE_USER="${2:-$(whoami)}"
-REMOTE="$REMOTE_USER@$REMOTE_HOST"
+RAW_TARGET="${1:?Usage: ./deploy.sh <host-or-url> [ssh-user]}"
+REMOTE_USER="${2:-jesco}"
 APP_DIR="/opt/guest-stay"
+
+# Accept bare hostname, full URL, or IP. Strip scheme + path if a URL was passed.
+HOST=$(echo "$RAW_TARGET" | sed -E 's#^[a-z]+://##; s#/.*$##')
+
+# known_hosts is pinned to the VM's IP, not its DNS name, so always connect by IP.
+if [[ "$HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    REMOTE_HOST="$HOST"
+else
+    REMOTE_HOST=$(dig +short "$HOST" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | tail -n1)
+    if [ -z "$REMOTE_HOST" ]; then
+        echo "Could not resolve $HOST to an IP" >&2
+        exit 1
+    fi
+    echo "==> Resolved $HOST -> $REMOTE_HOST"
+fi
+
+REMOTE="$REMOTE_USER@$REMOTE_HOST"
+
+# The gcloud-managed key isn't a default SSH identity, so plain ssh won't try it
+# unless it's in the agent. Load it if present (no-op if already loaded).
+GCE_KEY="$HOME/.ssh/google_compute_engine"
+if [ -f "$GCE_KEY" ]; then
+    ssh-add "$GCE_KEY" >/dev/null 2>&1 || true
+fi
 
 echo "==> Cross-compiling for Linux amd64..."
 cd "$(dirname "$0")"
