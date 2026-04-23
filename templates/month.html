@@ -1,0 +1,25 @@
+{{define "month"}}
+<div class="cal-month">
+    <h2 class="cal-month-header">{{monthName .Month}} {{.Year}}</h2>
+    <div class="calendar-grid">
+        <div class="cal-header">Sun</div>
+        <div class="cal-header">Mon</div>
+        <div class="cal-header">Tue</div>
+        <div class="cal-header">Wed</div>
+        <div class="cal-header">Thu</div>
+        <div class="cal-header">Fri</div>
+        <div class="cal-header">Sat</div>
+
+        {{range seq .PadBefore}}
+        <div class="cal-day empty"></div>
+        {{end}}
+
+        {{range .Days}}
+        <button type="button" class="cal-day{{if .Blocked}} blocked{{end}}{{if .Past}} past{{end}}{{if and (not .Blocked) (not .Past) (not .JesseAvailable) .AllisonAvailable}} jesse-away{{end}}{{if and (not .Blocked) (not .Past) .JesseAvailable (not .AllisonAvailable)}} allison-away{{end}}"
+                data-date="{{.Date}}"{{if or .Blocked .Past}} disabled{{end}}>
+            {{.Day}}
+        </button>
+        {{end}}
+    </div>
+</div>
+{{end}}

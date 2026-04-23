@@ -44,6 +44,7 @@ func main() {
 	mux.HandleFunc("GET /login", app.handleGuestLogin)
 	mux.HandleFunc("POST /login", app.handleGuestLoginPost)
 	mux.HandleFunc("GET /calendar", app.requireGuest(app.handleCalendar))
+	mux.HandleFunc("GET /calendar/month", app.requireGuest(app.handleCalendarMonth))
 	mux.HandleFunc("GET /book", app.requireGuest(app.handleBookingForm))
 	mux.HandleFunc("POST /book", app.requireGuest(app.handleBookPost))
 	mux.HandleFunc("GET /booking/{uuid}", app.requireGuest(app.handleBookingStatus))
