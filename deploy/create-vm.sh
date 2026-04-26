@@ -1,12 +1,12 @@
 #!/bin/bash
-# Create a free-tier GCP e2-micro VM for guest-stay.
+# Create a free-tier GCP e2-micro VM in the jesco39-com host project.
 # Prerequisites: gcloud CLI installed and authenticated.
 #
 # Usage: bash deploy/create-vm.sh
 
 set -euo pipefail
 
-PROJECT="${GCP_PROJECT:?Set GCP_PROJECT env var (e.g. export GCP_PROJECT=my-project-id)}"
+PROJECT="${GCP_PROJECT:?Set GCP_PROJECT env var (e.g. export GCP_PROJECT=jesco39-com)}"
 VM_NAME="dunnage"
 ZONE="us-central1-a"   # free-tier eligible
 MACHINE_TYPE="e2-micro" # free-tier eligible

@@ -19,10 +19,11 @@ The script accepts a URL, hostname, or IP and figures out the rest:
 If the DNS record is ever missing or stale:
 
 ```bash
+gcloud config set project jesco39-com
 gcloud compute instances list
 ```
 
-The VM is named `dunnage` in zone `us-central1-a`. It hosts multiple apps (guest-stay, cask). Its external IP is what you pass to `deploy.sh`.
+The VM is named `dunnage` in zone `us-central1-a`, in GCP project `jesco39-com`. It hosts multiple apps (guest-stay, cask). Its external IP is what you pass to `deploy.sh`.
 
 ### What deploy.sh does
 
