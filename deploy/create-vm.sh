@@ -7,7 +7,7 @@
 set -euo pipefail
 
 PROJECT="${GCP_PROJECT:?Set GCP_PROJECT env var (e.g. export GCP_PROJECT=my-project-id)}"
-VM_NAME="guest-stay"
+VM_NAME="dunnage"
 ZONE="us-central1-a"   # free-tier eligible
 MACHINE_TYPE="e2-micro" # free-tier eligible
 
@@ -40,11 +40,11 @@ gcloud compute firewall-rules describe allow-https --project="$PROJECT" &>/dev/n
         --description="Allow HTTPS"
 
 # Reserve a static IP
-gcloud compute addresses create guest-stay-ip \
+gcloud compute addresses create dunnage-ip \
     --project="$PROJECT" \
     --region=us-central1 2>/dev/null || true
 
-STATIC_IP=$(gcloud compute addresses describe guest-stay-ip \
+STATIC_IP=$(gcloud compute addresses describe dunnage-ip \
     --project="$PROJECT" \
     --region=us-central1 \
     --format="get(address)")

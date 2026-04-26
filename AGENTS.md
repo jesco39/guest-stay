@@ -22,7 +22,7 @@ If the DNS record is ever missing or stale:
 gcloud compute instances list
 ```
 
-The VM is named `guest-stay` in zone `us-central1-a`. Its external IP is what you pass to `deploy.sh`.
+The VM is named `dunnage` in zone `us-central1-a`. It hosts multiple apps (guest-stay, cask). Its external IP is what you pass to `deploy.sh`.
 
 ### What deploy.sh does
 
