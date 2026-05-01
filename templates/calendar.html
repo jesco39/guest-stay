@@ -13,15 +13,19 @@
 
     <div id="cal-sentinel" data-next-month="{{.SentinelMonth}}" data-today="{{.Today}}"></div>
 
-    <div class="legend">
-        <span class="legend-item"><span class="swatch available"></span> Both available</span>
-        <span class="legend-item"><span class="swatch jesse-away"></span> Jesse away</span>
-        <span class="legend-item"><span class="swatch allison-away"></span> Allison away</span>
-        <span class="legend-item"><span class="swatch blocked"></span> Unavailable</span>
-    </div>
-
-    <p class="text-center"><a href="/logout">Logout</a></p>
 </div>
+
+<footer class="cal-footer">
+    <div class="cal-footer-inner">
+        <div class="legend">
+            <span class="legend-item"><span class="swatch available"></span> Both available</span>
+            <span class="legend-item"><span class="swatch jesse-away"></span> Jesse away</span>
+            <span class="legend-item"><span class="swatch allison-away"></span> Allison away</span>
+            <span class="legend-item"><span class="swatch blocked"></span> Unavailable</span>
+        </div>
+        <a href="/logout" class="cal-footer-logout">Logout</a>
+    </div>
+</footer>
 
 <script src="/static/calendar.js"></script>
 {{end}}

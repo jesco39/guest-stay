@@ -281,6 +281,51 @@ input:focus, textarea:focus {
     border: 1px solid #c0392b;
 }
 
+/* Floating calendar footer */
+body:has(.cal-footer) {
+    padding-bottom: 4.5rem;
+}
+
+.cal-footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: #fff;
+    border-top: 1px solid #e0e0e0;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.1);
+    z-index: 100;
+}
+
+.cal-footer-inner {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 0.6rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.cal-footer .legend {
+    flex: 1;
+    margin-top: 0;
+    justify-content: flex-start;
+    font-size: 0.8rem;
+    gap: 1rem;
+}
+
+.cal-footer-logout {
+    font-size: 0.85rem;
+    color: #888;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.cal-footer-logout:hover {
+    color: #333;
+}
+
 /* Status badges */
 .status {
     display: inline-block;
