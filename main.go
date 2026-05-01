@@ -7,6 +7,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// Version is set at build time via -ldflags "-X main.Version=<git-sha>".
+// Falls back to "dev" for local runs.
+var Version = "dev"
+
 func main() {
 	cfg, err := loadConfig()
 	if err != nil {
