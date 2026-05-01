@@ -34,6 +34,7 @@ func initTemplates() {
 		"templates/booking_form.html",
 		"templates/booking_confirm.html",
 		"templates/booking_status.html",
+		"templates/info.html",
 		"templates/admin_login.html",
 		"templates/admin_dashboard.html",
 	}
@@ -359,6 +360,10 @@ func (a *appHandler) validateNoBlockedDates(checkIn, checkOut string) error {
 	}
 
 	return nil
+}
+
+func (a *appHandler) handleInfo(w http.ResponseWriter, r *http.Request) {
+	renderTemplate(w, "info.html", nil)
 }
 
 func (a *appHandler) handleLogout(w http.ResponseWriter, r *http.Request) {

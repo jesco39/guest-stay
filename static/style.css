@@ -397,3 +397,51 @@ body:has(.cal-footer) {
 a {
     color: #4a90d9;
 }
+
+/* Calendar footer info link */
+.cal-footer-info {
+    font-size: 0.85rem;
+    color: #888;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.cal-footer-info:hover {
+    color: #333;
+}
+
+/* Info page */
+.info-section {
+    margin-top: 1.25rem;
+}
+
+.info-section p {
+    margin-bottom: 0.5rem;
+}
+
+.info-note {
+    margin-top: 0.5rem;
+    color: #555;
+}
+
+.info-mta-links {
+    font-size: 0.9rem;
+    color: #666;
+    margin-bottom: 0.5rem;
+}
+
+.info-recs {
+    list-style: none;
+    padding: 0;
+    margin-bottom: 0.5rem;
+}
+
+.info-recs li {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #f0f0f0;
+    line-height: 1.5;
+}
+
+.info-recs li:last-child {
+    border-bottom: none;
+}

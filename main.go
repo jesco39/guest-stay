@@ -53,6 +53,7 @@ func main() {
 	mux.HandleFunc("POST /book", app.requireGuest(app.handleBookPost))
 	mux.HandleFunc("GET /booking/{uuid}", app.requireGuest(app.handleBookingStatus))
 	mux.HandleFunc("POST /booking/{uuid}/cancel", app.requireGuest(app.handleCancelBooking))
+	mux.HandleFunc("GET /info", app.requireGuest(app.handleInfo))
 	mux.HandleFunc("GET /logout", app.handleLogout)
 
 	// Admin routes

@@ -1,0 +1,121 @@
+{{template "layout" .}}
+{{define "content"}}
+<div class="card">
+    <h2>Apartment Info</h2>
+
+    <div class="info-section">
+        <h3>Address</h3>
+        <p>
+            <a href="https://www.google.com/maps/search/?api=1&query=250+E+Houston+St+%236D+New+York+NY+10002" target="_blank" rel="noopener">
+                250 E Houston St #6D, New York, NY 10002
+            </a>
+        </p>
+        <p class="info-note">Tell the doorman you're here to visit <strong>Jesse and Allison in 6D</strong>.</p>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Getting Here</h2>
+    <p class="info-mta-links">
+        Navigate the NYC subway with the official MTA app:
+        <a href="https://apps.apple.com/us/app/the-official-mta-app/id1297605670" target="_blank" rel="noopener">App Store</a>
+        &middot;
+        <a href="https://play.google.com/store/search?q=mta+app&c=apps&utm_source=na_Med" target="_blank" rel="noopener">Google Play</a>
+    </p>
+
+    <div class="info-section">
+        <h3>From JFK</h3>
+        <p>
+            <strong>Taxi / Rideshare</strong> — ~45–60 min, ~$60–85 (tolls included).
+            <a href="https://www.google.com/maps/dir/?api=1&origin=JFK+Airport+New+York&destination=250+E+Houston+St+New+York+NY+10002&travelmode=driving" target="_blank" rel="noopener">Driving directions &rarr;</a>
+        </p>
+        <p>
+            <strong>Fastest transit</strong> — AirTrain to Jamaica &rarr; LIRR to Penn Station &rarr; F train to 2nd Ave (~60–70 min total, 1 block walk).
+            <a href="https://www.google.com/maps/dir/?api=1&origin=JFK+Airport+New+York&destination=250+E+Houston+St+New+York+NY+10002&travelmode=transit" target="_blank" rel="noopener">Transit directions &rarr;</a>
+        </p>
+        <p>
+            <strong>Fewest transfers</strong> — AirTrain to Jamaica &rarr; E train direct to Delancey/Essex St &rarr; walk (~75–90 min, 1 transfer).
+        </p>
+    </div>
+
+    <div class="info-section">
+        <h3>From LaGuardia (LGA)</h3>
+        <p>
+            <strong>Taxi / Rideshare</strong> — ~30–45 min, ~$40–60. Recommended — LGA has no direct subway access.
+            <a href="https://www.google.com/maps/dir/?api=1&origin=LaGuardia+Airport+New+York&destination=250+E+Houston+St+New+York+NY+10002&travelmode=driving" target="_blank" rel="noopener">Driving directions &rarr;</a>
+        </p>
+        <p>
+            <strong>Fastest transit</strong> — Q70 SBS bus to Jackson Heights–Roosevelt Ave &rarr; E/F train to Delancey/Essex St (~55–70 min, 1 transfer).
+            <a href="https://www.google.com/maps/dir/?api=1&origin=LaGuardia+Airport+New+York&destination=250+E+Houston+St+New+York+NY+10002&travelmode=transit" target="_blank" rel="noopener">Transit directions &rarr;</a>
+        </p>
+        <p>
+            <strong>Fewest transfers</strong> — M60 SBS bus to 125th St &rarr; 6 train to Bleecker St &rarr; walk (~70–80 min, 1 transfer). Transit from LGA always requires at least one bus leg — taxi is the easier option.
+        </p>
+    </div>
+
+    <div class="info-section">
+        <h3>From Newark (EWR)</h3>
+        <p>
+            <strong>Taxi / Rideshare</strong> — ~45–60 min, ~$70–110 (NJ surcharges apply).
+            <a href="https://www.google.com/maps/dir/?api=1&origin=Newark+Liberty+International+Airport&destination=250+E+Houston+St+New+York+NY+10002&travelmode=driving" target="_blank" rel="noopener">Driving directions &rarr;</a>
+        </p>
+        <p>
+            <strong>Fastest transit</strong> — AirTrain Newark &rarr; NJ Transit to Penn Station &rarr; F train to 2nd Ave (~60–75 min, 1 block walk).
+            <a href="https://www.google.com/maps/dir/?api=1&origin=Newark+Liberty+International+Airport&destination=250+E+Houston+St+New+York+NY+10002&travelmode=transit" target="_blank" rel="noopener">Transit directions &rarr;</a>
+        </p>
+        <p>
+            <strong>Fewest transfers</strong> — Same route as above (AirTrain + NJ Transit = 1 transfer, then F train). Purchase a NJ Transit ticket for the train leg — MetroCard / OMNY is not accepted on NJ Transit.
+        </p>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Local Favorites</h2>
+
+    <h3>Coffee</h3>
+    <ul class="info-recs">
+        <li>
+            <a href="https://www.google.com/maps/search/?api=1&query=Moon+Coffee+Lab+New+York+NY" target="_blank" rel="noopener"><strong>Moon Coffee Lab</strong></a>
+            — neighborhood specialty roaster with excellent pour-overs
+        </li>
+        <li>
+            <a href="https://www.google.com/maps/search/?api=1&query=Dark+Matter+Coffee+New+York+NY" target="_blank" rel="noopener"><strong>Dark Matter</strong></a>
+            — bold, dark-roasted beans; espresso-focused
+        </li>
+        <li>
+            <a href="https://www.google.com/maps/search/?api=1&query=Mandrake+Cafe+New+York+NY" target="_blank" rel="noopener"><strong>Mandrake Cafe</strong></a>
+            — cozy Lower East Side sit-down spot
+        </li>
+        <li>
+            <a href="https://www.google.com/maps/search/?api=1&query=Amore+Caffe+New+York+NY" target="_blank" rel="noopener"><strong>A'more Caffe</strong></a>
+            — classic Italian-style espresso bar
+        </li>
+    </ul>
+
+    <h3>Quick Bites</h3>
+    <ul class="info-recs">
+        <li>
+            <a href="https://www.google.com/maps/search/?api=1&query=The+Oven+Slice+New+York+NY" target="_blank" rel="noopener"><strong>The Oven Slice</strong></a>
+            — wood-fired NY-style pizza by the slice
+        </li>
+        <li>
+            <a href="https://www.google.com/maps/search/?api=1&query=7th+Street+Burger+New+York+NY" target="_blank" rel="noopener"><strong>7th Street Burger</strong></a>
+            — smashburgers; an East Village staple
+        </li>
+        <li>
+            <a href="https://www.google.com/maps/search/?api=1&query=Win+Son+Bakery+New+York+NY" target="_blank" rel="noopener"><strong>Win Son Bakery</strong></a>
+            — Taiwanese bakery with pastries and breakfast sandwiches
+        </li>
+    </ul>
+
+    <h3>Dinner</h3>
+    <ul class="info-recs">
+        <li>
+            <a href="https://www.google.com/maps/search/?api=1&query=Sami+%26+Susu+New+York+NY" target="_blank" rel="noopener"><strong>Sami & Susu</strong></a>
+            — Mediterranean small plates; affordable and elevated
+        </li>
+    </ul>
+</div>
+
+<p class="text-center"><a href="/calendar">&larr; Back to calendar</a></p>
+{{end}}
