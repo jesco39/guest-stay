@@ -19,9 +19,10 @@ var funcMap = template.FuncMap{
 		}
 		return s
 	},
-	"add": func(a, b int) int { return a + b },
-	"weekday": func(d time.Weekday) int { return int(d) },
-	"monthName": func(m time.Month) string { return m.String() },
+	"add":          func(a, b int) int { return a + b },
+	"weekday":      func(d time.Weekday) int { return int(d) },
+	"monthName":    func(m time.Month) string { return m.String() },
+	"assetVersion": func() string { return Version },
 }
 
 func initTemplates() {

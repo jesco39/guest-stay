@@ -40,7 +40,9 @@ fi
 
 echo "==> Cross-compiling for Linux amd64..."
 cd "$(dirname "$0")"
-GOOS=linux GOARCH=amd64 go build -o guest-stay-linux .
+VERSION=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+echo "==> Build version: $VERSION"
+GOOS=linux GOARCH=amd64 go build -ldflags "-X main.Version=$VERSION" -o guest-stay-linux .
 
 echo "==> Uploading files to ${REMOTE}:${APP_DIR}..."
 # Upload binary
