@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -60,6 +61,117 @@ func isBookingEvent(titleLower string) bool {
 	return strings.HasPrefix(titleLower, "guest stay:") || strings.HasPrefix(titleLower, "cat sitting:")
 }
 
+// eventEffect is what one all-day event on the Life calendar means for availability.
+type eventEffect struct {
+	// Blocks reports an existing booking, whose dates are taken. Only this app's own
+	// events block — everything else on the Life calendar is host travel, and travel is
+	// what makes a day bookable rather than unavailable.
+	Blocks bool
+
+	// JesseAway and AllisonAway report which hosts the event takes out of town. Both
+	// away is a cat-sitting day; one away is still a regular guest stay with the other
+	// host at home.
+	JesseAway   bool
+	AllisonAway bool
+}
+
+// allDayEvent is the part of a Google Calendar all-day event these rules depend on.
+// Start is inclusive; End is exclusive, as the API returns it.
+type allDayEvent struct {
+	Summary string
+	Start   string
+	End     string
+}
+
+// allDayEventsFrom pulls the all-day events out of an API response, dropping timed
+// entries, which never affect availability.
+func allDayEventsFrom(events *calendar.Events) []allDayEvent {
+	var out []allDayEvent
+	for _, e := range events.Items {
+		if e.Start == nil || e.Start.Date == "" || e.End == nil {
+			continue
+		}
+		out = append(out, allDayEvent{Summary: e.Summary, Start: e.Start.Date, End: e.End.Date})
+	}
+	return out
+}
+
+// eachDate calls fn for every date an all-day event covers, inclusive.
+func (e allDayEvent) eachDate(fn func(dateStr string)) {
+	start, err := time.Parse("2006-01-02", e.Start)
+	if err != nil {
+		// Dropping the event is the cheap failure, but for a booking event it means the
+		// dates go unblocked, so it must not be silent.
+		log.Printf("Skipping calendar event %q: unparseable start %q: %v", e.Summary, e.Start, err)
+		return
+	}
+	end, err := time.Parse("2006-01-02", e.End)
+	if err != nil {
+		log.Printf("Skipping calendar event %q: unparseable end %q: %v", e.Summary, e.End, err)
+		return
+	}
+	end = end.AddDate(0, 0, -1) // end date is exclusive in all-day events
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		fn(d.Format("2006-01-02"))
+	}
+}
+
+// blockedDatesFrom returns the dates these events make unavailable. Only this app's own
+// bookings block: host travel is what makes a day bookable, not unavailable.
+func blockedDatesFrom(events []allDayEvent) map[string]bool {
+	dates := make(map[string]bool)
+	for _, e := range events {
+		if !classifyEvent(strings.ToLower(e.Summary)).Blocks {
+			continue
+		}
+		e.eachDate(func(d string) { dates[d] = true })
+	}
+	return dates
+}
+
+// availabilityFrom returns which hosts are away on each date these events cover.
+func availabilityFrom(events []allDayEvent) map[string]HostAvailability {
+	avail := make(map[string]HostAvailability)
+	for _, e := range events {
+		eff := classifyEvent(strings.ToLower(e.Summary))
+		if eff.Blocks {
+			continue
+		}
+		e.eachDate(func(d string) {
+			ha := avail[d]
+			if eff.JesseAway {
+				ha.JesseAway = true
+			}
+			if eff.AllisonAway {
+				ha.AllisonAway = true
+			}
+			avail[d] = ha
+		})
+	}
+	return avail
+}
+
+// classifyEvent derives every meaning of an event from one place, so the blocked-dates
+// read and the host-availability read cannot disagree about the same event.
+//
+// They previously did, and it made cat sitting unreachable: an event naming neither host
+// ("NoLa for Mare & Jason's wedding") was read as both-hosts-away by one function and as
+// a generic blocker by the other, so every cat-sitting day was also blocked and blocked
+// wins. titleLower must already be lowercased.
+func classifyEvent(titleLower string) eventEffect {
+	if isBookingEvent(titleLower) {
+		return eventEffect{Blocks: true}
+	}
+
+	jesse := strings.Contains(titleLower, "jesse")
+	allison := strings.Contains(titleLower, "allison")
+	if !jesse && !allison {
+		// A trip named for where it is going rather than who is going takes them both.
+		return eventEffect{JesseAway: true, AllisonAway: true}
+	}
+	return eventEffect{JesseAway: jesse, AllisonAway: allison}
+}
+
 func initCalendarService(credentialsFile string) (*calendar.Service, error) {
 	ctx := context.Background()
 	srv, err := calendar.NewService(ctx, option.WithCredentialsFile(credentialsFile))
@@ -95,26 +207,7 @@ func getGoogleBlockedDates(srv *calendar.Service, calendarID string, month time.
 		return nil, err
 	}
 
-	dates := make(map[string]bool)
-	for _, event := range events.Items {
-		// Only block on all-day events; skip time-based entries
-		if event.Start.Date == "" {
-			continue
-		}
-		// Skip personal travel events (handled by Life calendar availability logic).
-		// Booking events always block, even when the guest shares a host's name.
-		titleLower := strings.ToLower(event.Summary)
-		if !isBookingEvent(titleLower) &&
-			(strings.Contains(titleLower, "jesse") || strings.Contains(titleLower, "allison")) {
-			continue
-		}
-		start, _ := time.Parse("2006-01-02", event.Start.Date)
-		end, _ := time.Parse("2006-01-02", event.End.Date)
-		end = end.AddDate(0, 0, -1) // end date is exclusive in all-day events
-		for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
-			dates[d.Format("2006-01-02")] = true
-		}
-	}
+	dates := blockedDatesFrom(allDayEventsFrom(events))
 
 	calCache.mu.Lock()
 	calCache.entries[key] = cacheEntry{dates: dates, expires: time.Now().Add(5 * time.Minute)}
@@ -211,41 +304,7 @@ func getLifeCalendarAvailability(srv *calendar.Service, calendarID string, month
 		return nil, err
 	}
 
-	avail := make(map[string]HostAvailability)
-	for _, event := range events.Items {
-		if event.Start.Date == "" {
-			continue
-		}
-
-		titleLower := strings.ToLower(event.Summary)
-
-		// Approved bookings are written to this same calendar. They are not host
-		// travel, and without this they would look like a both-hosts-away window.
-		if isBookingEvent(titleLower) {
-			continue
-		}
-
-		jesseMatch := strings.Contains(titleLower, "jesse")
-		allisonMatch := strings.Contains(titleLower, "allison")
-
-		jesseAway := jesseMatch || (!jesseMatch && !allisonMatch)
-		allisonAway := allisonMatch || (!jesseMatch && !allisonMatch)
-
-		start, _ := time.Parse("2006-01-02", event.Start.Date)
-		end, _ := time.Parse("2006-01-02", event.End.Date)
-		end = end.AddDate(0, 0, -1) // end date is exclusive in all-day events
-		for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
-			dateStr := d.Format("2006-01-02")
-			ha := avail[dateStr]
-			if jesseAway {
-				ha.JesseAway = true
-			}
-			if allisonAway {
-				ha.AllisonAway = true
-			}
-			avail[dateStr] = ha
-		}
-	}
+	avail := availabilityFrom(allDayEventsFrom(events))
 
 	lifeCalCache.mu.Lock()
 	lifeCalCache.entries[key] = lifeCacheEntry{availability: avail, expires: time.Now().Add(5 * time.Minute)}

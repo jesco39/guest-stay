@@ -63,6 +63,105 @@ func TestDayState(t *testing.T) {
 	}
 }
 
+// TestClassifyEvent pins the rule table for Life calendar events. The regression it
+// guards: an event naming neither host is host travel, so it must make its dates
+// available for cat sitting rather than block them.
+func TestClassifyEvent(t *testing.T) {
+	tests := []struct {
+		title string
+		want  eventEffect
+	}{
+		// Trips named for the destination rather than the traveller take both hosts.
+		{"nola for mare & jason's wedding", eventEffect{JesseAway: true, AllisonAway: true}},
+		{"tokyo", eventEffect{JesseAway: true, AllisonAway: true}},
+
+		// Named hosts.
+		{"jesse - conference", eventEffect{JesseAway: true}},
+		{"allison - work trip", eventEffect{AllisonAway: true}},
+		{"jesse and allison in portugal", eventEffect{JesseAway: true, AllisonAway: true}},
+
+		// This app's own bookings, which are the only thing that blocks.
+		{"guest stay: sam", eventEffect{Blocks: true}},
+		{"cat sitting: sam", eventEffect{Blocks: true}},
+		// A guest who shares a host's name must still block, not read as host travel.
+		{"guest stay: allison", eventEffect{Blocks: true}},
+		{"cat sitting: jesse", eventEffect{Blocks: true}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.title, func(t *testing.T) {
+			got := classifyEvent(tt.title)
+			if got != tt.want {
+				t.Errorf("classifyEvent(%q) = %+v, want %+v", tt.title, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestClassifyEventNeverBlocksAndTravels pins the invariant whose violation made cat
+// sitting unbookable: the two reads derived their own meaning from the same title, and an
+// event that marked both hosts away also blocked its dates, so blocked always won.
+func TestClassifyEventNeverBlocksAndTravels(t *testing.T) {
+	titles := []string{
+		"nola for mare & jason's wedding", "tokyo", "jesse - conference",
+		"allison - work trip", "jesse and allison in portugal",
+		"guest stay: sam", "cat sitting: sam", "guest stay: allison", "",
+	}
+	for _, title := range titles {
+		eff := classifyEvent(title)
+		if eff.Blocks && (eff.JesseAway || eff.AllisonAway) {
+			t.Errorf("classifyEvent(%q) = %+v: an event cannot both block its dates and send the hosts away", title, eff)
+		}
+	}
+}
+
+// TestCatSittingDayIsBookable runs the two real reads over the same event and asserts
+// the day comes out cat-sitting AND selectable. This is the regression: both reads
+// consumed the same event and disagreed, so every cat-sitting day was also blocked and
+// blocked wins. Driving blockedDatesFrom and availabilityFrom — the functions the API
+// handlers delegate to — rather than re-deriving their logic here.
+func TestCatSittingDayIsBookable(t *testing.T) {
+	// End is exclusive, as Google returns it.
+	events := []allDayEvent{
+		{Summary: "NoLa for Mare & Jason's wedding", Start: "2026-08-13", End: "2026-08-16"},
+		{Summary: "Allison - work trip", Start: "2026-10-18", End: "2026-10-19"},
+		{Summary: "Guest Stay: Sam", Start: "2026-09-01", End: "2026-09-03"},
+	}
+
+	blockedDates := blockedDatesFrom(events)
+	life := availabilityFrom(events)
+
+	check := func(date string, wantBlocked, wantCatSitting bool) {
+		t.Helper()
+		blocked, catSitting := dayState(date, nil, blockedDates, life)
+		if blocked != wantBlocked {
+			t.Errorf("%s blocked = %v, want %v", date, blocked, wantBlocked)
+		}
+		if catSitting != wantCatSitting {
+			t.Errorf("%s catSitting = %v, want %v", date, catSitting, wantCatSitting)
+		}
+	}
+
+	// The wedding names neither host, so both are away: cat sitting, and bookable.
+	check("2026-08-13", false, true)
+	check("2026-08-15", false, true)
+
+	// One host away is a regular guest stay, still bookable, not cat sitting.
+	check("2026-10-18", false, false)
+
+	// An existing booking still blocks.
+	check("2026-09-01", true, false)
+	check("2026-09-02", true, false)
+
+	// A day with no events at all.
+	check("2026-08-20", false, false)
+
+	// End is exclusive: the last day an event covers is the day before its End. Without
+	// this, dropping the end-date arithmetic passes the whole suite unnoticed.
+	check("2026-08-16", false, false) // wedding runs 08-13..08-15
+	check("2026-09-03", false, false) // booking runs 09-01..09-02
+}
+
 func TestIsBookingEvent(t *testing.T) {
 	tests := map[string]bool{
 		"guest stay: allison":    true,
