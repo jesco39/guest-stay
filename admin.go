@@ -60,16 +60,27 @@ func (a *appHandler) handleApprove(w http.ResponseWriter, r *http.Request) {
 	// influence the host-availability read. Host travel may have been added or dropped
 	// since the request was submitted, so re-derive the type and persist it — otherwise
 	// the stored type, the calendar event title, the badge, and the email disagree.
-	catDates := a.catSittingDates(b.CheckIn, b.CheckOut)
-	bookingType := bookingTypeRegular
-	if len(catDates) > 0 {
-		bookingType = bookingTypeCatSitting
-	}
-	if b.BookingType != bookingType {
-		if err := updateBookingType(a.db, id, bookingType); err != nil {
-			log.Printf("Error updating booking type for %d: %v", id, err)
+	//
+	// Only on a successful read: an error here means "could not determine", and treating
+	// that as "no cat-sitting days" would persist a downgrade of a real cat-sitting
+	// booking on nothing more than a transient calendar failure.
+	catDates, err := a.catSittingDatesForBooking(b)
+	if err != nil {
+		log.Printf("Error re-deriving cat-sitting dates for booking %d, keeping stored type %q: %v", id, b.BookingType, err)
+		catDates = nil
+	} else {
+		bookingType := bookingTypeRegular
+		if len(catDates) > 0 {
+			bookingType = bookingTypeCatSitting
 		}
-		b.BookingType = bookingType
+		if b.BookingType != bookingType {
+			if err := updateBookingType(a.db, id, bookingType); err != nil {
+				// Leave b untouched, so the event title and email match what is stored.
+				log.Printf("Error updating booking type for %d: %v", id, err)
+			} else {
+				b.BookingType = bookingType
+			}
+		}
 	}
 
 	if err := updateBookingStatus(a.db, id, "approved"); err != nil {

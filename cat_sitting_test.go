@@ -325,6 +325,98 @@ func TestUpdateBookingType(t *testing.T) {
 	}
 }
 
+// TestMonthsInRange guards the time-zone regression: start/end come from time.Parse
+// (UTC), and a cursor built in time.Local dropped the final month west of UTC whenever
+// check-out fell on the 1st — silently skipping that month's availability.
+func TestMonthsInRange(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skipf("tzdata unavailable: %v", err)
+	}
+	orig := time.Local
+	time.Local = ny
+	t.Cleanup(func() { time.Local = orig })
+
+	tests := []struct {
+		name              string
+		checkIn, checkOut string
+		want              []string
+	}{
+		{"within one month", "2026-09-08", "2026-09-18", []string{"2026-09"}},
+		{"check-out on the 1st of the next month", "2026-09-28", "2026-10-01", []string{"2026-09", "2026-10"}},
+		{"spanning three months", "2026-09-28", "2026-11-02", []string{"2026-09", "2026-10", "2026-11"}},
+		{"across a year boundary", "2026-12-28", "2027-01-01", []string{"2026-12", "2027-01"}},
+		{"single day", "2026-09-08", "2026-09-08", []string{"2026-09"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, _ := time.Parse("2006-01-02", tt.checkIn)
+			end, _ := time.Parse("2006-01-02", tt.checkOut)
+
+			got := monthsInRange(start, end)
+			if len(got) != len(tt.want) {
+				t.Fatalf("monthsInRange(%s, %s) = %v, want %v", tt.checkIn, tt.checkOut, formatMonths(got), tt.want)
+			}
+			for i := range got {
+				if got[i].Format("2006-01") != tt.want[i] {
+					t.Errorf("month %d = %s, want %s", i, got[i].Format("2006-01"), tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func formatMonths(months []time.Time) []string {
+	out := make([]string, len(months))
+	for i, m := range months {
+		out[i] = m.Format("2006-01")
+	}
+	return out
+}
+
+// TestGetBookedDatesExcluding covers re-evaluating an already-approved booking, which
+// must not read its own held dates as blocked.
+func TestGetBookedDatesExcluding(t *testing.T) {
+	db := newTestDB(t)
+
+	b := &Booking{GuestName: "Sitter", GuestEmail: "s@example.com", CheckIn: "2026-09-10", CheckOut: "2026-09-12"}
+	if err := insertBooking(db, b); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	if err := updateBookingStatus(db, b.ID, "approved"); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+
+	all, err := getBookedDates(db, "2026-09-01", "2026-09-30")
+	if err != nil {
+		t.Fatalf("getBookedDates: %v", err)
+	}
+	if !all["2026-09-11"] {
+		t.Error("approved booking should block its own dates for everyone else")
+	}
+
+	excluded, err := getBookedDatesExcluding(db, "2026-09-01", "2026-09-30", b.ID)
+	if err != nil {
+		t.Fatalf("getBookedDatesExcluding: %v", err)
+	}
+	if len(excluded) != 0 {
+		t.Errorf("booking still blocks itself when excluded: %v", excluded)
+	}
+}
+
+// TestCatSittingNoteWithoutDates covers the approval path when the dates could not be
+// re-read: a booking stored as cat sitting must still say so.
+func TestCatSittingNoteWithoutDates(t *testing.T) {
+	note := catSittingNote(&Booking{BookingType: bookingTypeCatSitting}, nil)
+	if !strings.Contains(note, "cat sitting") {
+		t.Errorf("cat-sitting booking with unknown dates lost its note: %q", note)
+	}
+	if got := catSittingNote(&Booking{BookingType: bookingTypeRegular}, nil); got != "" {
+		t.Errorf("regular booking got a note: %q", got)
+	}
+}
+
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := initDB(t.TempDir() + "/test.db")

@@ -246,7 +246,7 @@ func (a *appHandler) handleBookPost(w http.ResponseWriter, r *http.Request) {
 
 	// Derived from the calendar, never from the form: a guest cannot talk their way
 	// out of cat-sitting duty (or into it) by editing the request.
-	catDates := a.catSittingDates(checkIn, checkOut)
+	catDates := a.catSittingDatesForRequest(checkIn, checkOut)
 
 	if name == "" || email == "" || checkIn == "" || checkOut == "" {
 		renderBookingForm(w, checkIn, checkOut, "Please fill in all required fields", catDates)
@@ -301,7 +301,7 @@ func (a *appHandler) handleBookingForm(w http.ResponseWriter, r *http.Request) {
 		errMsg = err.Error()
 	}
 
-	renderBookingForm(w, checkIn, checkOut, errMsg, a.catSittingDates(checkIn, checkOut))
+	renderBookingForm(w, checkIn, checkOut, errMsg, a.catSittingDatesForRequest(checkIn, checkOut))
 }
 
 func (a *appHandler) handleBookingStatus(w http.ResponseWriter, r *http.Request) {
@@ -341,6 +341,9 @@ func dayState(dateStr string, booked, googleBlocked map[string]bool, lifeAvail m
 const (
 	maxStayNights  = 90
 	maxMonthsAhead = 13
+
+	// Hard backstop on how many months one availability read may span.
+	maxMonthsPerRange = 24
 )
 
 // parseStayRange validates a requested date range before any calendar work is done
@@ -371,19 +374,32 @@ func parseStayRange(checkIn, checkOut string) (start, end time.Time, err error) 
 }
 
 // rangeAvailability loads booked dates, Google-blocked dates, and host availability
-// covering every month spanned by start..end.
-func (a *appHandler) rangeAvailability(checkIn, checkOut string, start, end time.Time) (booked, googleBlocked map[string]bool, lifeAvail map[string]HostAvailability, err error) {
-	booked, err = getBookedDates(a.db, checkIn, checkOut)
+// covering every month spanned by start..end. excludeBookingID drops one booking's own
+// held dates from the booked set, so re-reading a booking that is already approved does
+// not see itself as a blocker; pass 0 to exclude nothing.
+//
+// Calendar errors are returned rather than logged and swallowed: callers decide whether
+// a stay is bookable and what type it is, and an empty availability map is
+// indistinguishable from "the hosts are home".
+func (a *appHandler) rangeAvailability(checkIn, checkOut string, start, end time.Time, excludeBookingID int64) (booked, googleBlocked map[string]bool, lifeAvail map[string]HostAvailability, err error) {
+	booked, err = getBookedDatesExcluding(a.db, checkIn, checkOut, excludeBookingID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
+	// Backstop for any caller that skips the guest-facing caps, so a stored range can
+	// never turn into an unbounded loop of calendar round trips.
+	months := monthsInRange(start, end)
+	if len(months) > maxMonthsPerRange {
+		return nil, nil, nil, fmt.Errorf("range spans %d months, over the %d month limit", len(months), maxMonthsPerRange)
+	}
+
 	googleBlocked = make(map[string]bool)
 	lifeAvail = make(map[string]HostAvailability)
-	for m := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, time.Local); !m.After(end); m = m.AddDate(0, 1, 0) {
+	for _, m := range months {
 		dates, err := getGoogleBlockedDates(a.calService, a.cfg.GoogleLifeCalendarID, m)
 		if err != nil {
-			log.Printf("Error checking Google Calendar for %s: %v", m.Format("2006-01"), err)
+			return nil, nil, nil, fmt.Errorf("checking Google Calendar for %s: %w", m.Format("2006-01"), err)
 		}
 		for k, v := range dates {
 			googleBlocked[k] = v
@@ -391,7 +407,7 @@ func (a *appHandler) rangeAvailability(checkIn, checkOut string, start, end time
 
 		avail, err := getLifeCalendarAvailability(a.calService, a.cfg.GoogleLifeCalendarID, m)
 		if err != nil {
-			log.Printf("Error checking life calendar for %s: %v", m.Format("2006-01"), err)
+			return nil, nil, nil, fmt.Errorf("checking life calendar for %s: %w", m.Format("2006-01"), err)
 		}
 		for k, v := range avail {
 			lifeAvail[k] = v
@@ -401,31 +417,75 @@ func (a *appHandler) rangeAvailability(checkIn, checkOut string, start, end time
 	return booked, googleBlocked, lifeAvail, nil
 }
 
-// catSittingDates returns the dates in checkIn..checkOut (inclusive) on which both
-// hosts are away, in chronological order. An empty result means the stay carries no
-// cat-sitting duty.
-func (a *appHandler) catSittingDates(checkIn, checkOut string) []string {
-	start, end, err := parseStayRange(checkIn, checkOut)
-	if err != nil {
-		return nil
+// monthsInRange lists the first day of every calendar month a range touches, inclusive.
+// The cursor must share start's location: start and end come from time.Parse (UTC), and
+// building it in time.Local drops the final month west of UTC whenever end falls on the
+// 1st — silently skipping that month's blocked dates and host availability.
+func monthsInRange(start, end time.Time) []time.Time {
+	var months []time.Time
+	for m := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, start.Location()); !m.After(end); m = m.AddDate(0, 1, 0) {
+		months = append(months, m)
 	}
+	return months
+}
 
-	booked, googleBlocked, lifeAvail, err := a.rangeAvailability(checkIn, checkOut, start, end)
+// catSittingDatesIn resolves the cat-sitting days within an already-validated range,
+// in chronological order. A day that is blocked is never part of the stay, so it carries
+// no cat duty even when the Life calendar reads as both-hosts-away for it.
+func (a *appHandler) catSittingDatesIn(checkIn, checkOut string, start, end time.Time, excludeBookingID int64) ([]string, error) {
+	booked, googleBlocked, lifeAvail, err := a.rangeAvailability(checkIn, checkOut, start, end, excludeBookingID)
 	if err != nil {
-		log.Printf("Error determining cat-sitting dates for %s..%s: %v", checkIn, checkOut, err)
-		return nil
+		return nil, err
 	}
 
 	var dates []string
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
-		// A blocked day is never part of the stay, so it carries no cat duty even if
-		// the Life calendar reads as both-hosts-away for it.
 		if blocked, catSitting := dayState(dateStr, booked, googleBlocked, lifeAvail); catSitting && !blocked {
 			dates = append(dates, dateStr)
 		}
 	}
+	return dates, nil
+}
+
+// catSittingDatesForRequest resolves the cat-sitting days for a range a guest is
+// requesting. It returns nil when the range is invalid or unresolvable — callers on this
+// path always run validateNoBlockedDates first, which refuses the booking outright when
+// availability cannot be read, so an empty result here can never wave a stay through.
+func (a *appHandler) catSittingDatesForRequest(checkIn, checkOut string) []string {
+	start, end, err := parseStayRange(checkIn, checkOut)
+	if err != nil {
+		return nil
+	}
+
+	dates, err := a.catSittingDatesIn(checkIn, checkOut, start, end, 0)
+	if err != nil {
+		log.Printf("Error determining cat-sitting dates for %s..%s: %v", checkIn, checkOut, err)
+		return nil
+	}
 	return dates
+}
+
+// catSittingDatesForBooking resolves the cat-sitting days for a stored booking. It skips
+// the guest-facing caps, which apply to what may be requested rather than to what is
+// already on the books, and ignores the booking's own held dates so an already-approved
+// booking does not read as blocking itself. The error is returned rather than folded into
+// an empty result: callers persist the classification, and "could not determine" must not
+// be mistaken for "no cat-sitting days".
+func (a *appHandler) catSittingDatesForBooking(b *Booking) ([]string, error) {
+	start, err := time.Parse("2006-01-02", b.CheckIn)
+	if err != nil {
+		return nil, fmt.Errorf("parsing check-in %q: %w", b.CheckIn, err)
+	}
+	end, err := time.Parse("2006-01-02", b.CheckOut)
+	if err != nil {
+		return nil, fmt.Errorf("parsing check-out %q: %w", b.CheckOut, err)
+	}
+	if end.Before(start) {
+		return nil, fmt.Errorf("check-out %s precedes check-in %s", b.CheckOut, b.CheckIn)
+	}
+
+	return a.catSittingDatesIn(b.CheckIn, b.CheckOut, start, end, b.ID)
 }
 
 func (a *appHandler) validateNoBlockedDates(checkIn, checkOut string) error {
@@ -434,9 +494,12 @@ func (a *appHandler) validateNoBlockedDates(checkIn, checkOut string) error {
 		return err
 	}
 
-	bookedDates, googleBlocked, lifeAvail, err := a.rangeAvailability(checkIn, checkOut, start, end)
+	bookedDates, googleBlocked, lifeAvail, err := a.rangeAvailability(checkIn, checkOut, start, end, 0)
 	if err != nil {
-		return fmt.Errorf("Unable to verify availability")
+		// Fail closed: without a calendar read there is no way to tell a free day from a
+		// blocked one, and accepting the booking risks a double booking.
+		log.Printf("Error verifying availability for %s..%s: %v", checkIn, checkOut, err)
+		return fmt.Errorf("We couldn't verify availability just now. Please try again in a few minutes.")
 	}
 
 	// Check each day in the range using the same logic as the calendar view

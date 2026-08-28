@@ -239,9 +239,17 @@ func setBookingCalendarEvent(db *sql.DB, id int64, eventID string) error {
 }
 
 func getBookedDates(db *sql.DB, monthStart, monthEnd string) (map[string]bool, error) {
+	return getBookedDatesExcluding(db, monthStart, monthEnd, 0)
+}
+
+// getBookedDatesExcluding is getBookedDates with one booking left out, so a booking can
+// be re-evaluated without its own held dates reading as blocked. excludeID 0 excludes
+// nothing, since AUTOINCREMENT ids start at 1.
+func getBookedDatesExcluding(db *sql.DB, monthStart, monthEnd string, excludeID int64) (map[string]bool, error) {
 	rows, err := db.Query(
-		`SELECT check_in, check_out FROM bookings WHERE status = 'approved' AND check_out >= ? AND check_in <= ?`,
-		monthStart, monthEnd,
+		`SELECT check_in, check_out FROM bookings
+		 WHERE status = 'approved' AND check_out >= ? AND check_in <= ? AND id != ?`,
+		monthStart, monthEnd, excludeID,
 	)
 	if err != nil {
 		return nil, err

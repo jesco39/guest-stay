@@ -64,8 +64,13 @@ func groupDateRuns(dates []string) []string {
 // catSittingNote renders the cat-sitting section of a notification email, or an
 // empty string for a regular stay.
 func catSittingNote(b *Booking, catDates []string) string {
-	if b.BookingType != bookingTypeCatSitting || len(catDates) == 0 {
+	if b.BookingType != bookingTypeCatSitting {
 		return ""
+	}
+	if len(catDates) == 0 {
+		// The stay is on the books as cat sitting but the dates could not be re-read.
+		// Say so rather than sending a cat-sitting email with nothing in it.
+		return "\nThis stay includes cat sitting while we're away.\n"
 	}
 
 	var sb strings.Builder
