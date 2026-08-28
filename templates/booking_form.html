@@ -9,17 +9,30 @@
     <form method="POST" action="/book">
         <input type="hidden" name="check_in" value="{{.CheckIn}}">
         <input type="hidden" name="check_out" value="{{.CheckOut}}">
+        {{if .CatSittingDates}}
+        <div class="cat-sitting-notice">
+            <h3>&#128049; This stay includes cat sitting</h3>
+            <p>Jesse and Allison are away on these dates, so the cats are in your care:</p>
+            <ul>
+                {{range .CatSittingDates}}<li>{{.}}</li>{{end}}
+            </ul>
+            <label class="cat-sitting-ack">
+                <input type="checkbox" name="cat_sitting_ack" value="yes" required>
+                <span>I'll feed the cats, refresh their water, and scoop the litter box on these dates.</span>
+            </label>
+        </div>
+        {{end}}
         <div class="form-group">
             <label for="guest_name">Your Name *</label>
-            <input type="text" id="guest_name" name="guest_name" required>
+            <input type="text" id="guest_name" name="guest_name" value="{{.GuestName}}" required>
         </div>
         <div class="form-group">
             <label for="guest_email">Your Email *</label>
-            <input type="email" id="guest_email" name="guest_email" required>
+            <input type="email" id="guest_email" name="guest_email" value="{{.GuestEmail}}" required>
         </div>
         <div class="form-group">
             <label for="message">Message (optional)</label>
-            <textarea id="message" name="message" rows="3"></textarea>
+            <textarea id="message" name="message" rows="3">{{.Message}}</textarea>
         </div>
         <button type="submit" class="btn">Submit Request</button>
     </form>

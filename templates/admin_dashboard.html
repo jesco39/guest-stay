@@ -10,6 +10,7 @@
         <div class="booking-card pending">
             <div class="booking-info">
                 <strong>{{.GuestName}}</strong> ({{.GuestEmail}})
+                {{if eq .BookingType "cat_sitting"}}<span class="badge-cat-sitting">&#128049; Cat sitting</span>{{end}}
                 <br>{{.CheckIn}} &rarr; {{.CheckOut}}
                 {{if .Message}}<br><em>{{.Message}}</em>{{end}}
             </div>
@@ -35,6 +36,7 @@
         <div class="booking-card approved">
             <div class="booking-info">
                 <strong>{{.GuestName}}</strong> ({{.GuestEmail}})
+                {{if eq .BookingType "cat_sitting"}}<span class="badge-cat-sitting">&#128049; Cat sitting</span>{{end}}
                 <br>{{.CheckIn}} &rarr; {{.CheckOut}}
             </div>
             <div class="booking-actions">
@@ -55,7 +57,7 @@
     <div class="booking-list">
         {{range .Denied}}
         <div class="booking-card denied">
-            <strong>{{.GuestName}}</strong> &mdash; {{.CheckIn}} &rarr; {{.CheckOut}}
+            <strong>{{.GuestName}}</strong>{{if eq .BookingType "cat_sitting"}} <span class="badge-cat-sitting">&#128049; Cat sitting</span>{{end}} &mdash; {{.CheckIn}} &rarr; {{.CheckOut}}
         </div>
         {{end}}
     </div>
@@ -68,7 +70,7 @@
     <div class="booking-list">
         {{range .Cancelled}}
         <div class="booking-card cancelled">
-            <strong>{{.GuestName}}</strong> &mdash; {{.CheckIn}} &rarr; {{.CheckOut}}
+            <strong>{{.GuestName}}</strong>{{if eq .BookingType "cat_sitting"}} <span class="badge-cat-sitting">&#128049; Cat sitting</span>{{end}} &mdash; {{.CheckIn}} &rarr; {{.CheckOut}}
         </div>
         {{end}}
     </div>

@@ -3,6 +3,13 @@
 <div class="card">
     <p class="hint">Tap a check-in date, then a check-out date.</p>
 
+    {{if .AvailabilityUnknown}}
+    <div class="availability-warning">
+        We couldn't reach the calendar just now, so these dates may not be up to date and
+        submitting a request may not work. Please try again shortly.
+    </div>
+    {{end}}
+
     <div id="selection" class="selection" style="display:none;">
         <p>Check-in: <strong id="sel-checkin"></strong></p>
         <p>Check-out: <strong id="sel-checkout"></strong></p>
@@ -21,6 +28,7 @@
             <span class="legend-item"><span class="swatch available"></span> Both available</span>
             <span class="legend-item"><span class="swatch jesse-away"></span> Jesse away</span>
             <span class="legend-item"><span class="swatch allison-away"></span> Allison away</span>
+            <span class="legend-item"><span class="swatch cat-sitting"></span> Cat sitting</span>
             <span class="legend-item"><span class="swatch blocked"></span> Unavailable</span>
         </div>
         <a href="/info" class="cal-footer-info">Travel Info</a>

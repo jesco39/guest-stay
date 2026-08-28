@@ -8,39 +8,39 @@ import (
 )
 
 type Config struct {
-	Port                 string
-	BaseURL              string
-	GuestPassword        string
+	Port                  string
+	BaseURL               string
+	GuestPassword         string
 	AdminUsername         string
 	AdminPassword         string
-	GoogleCredentialsFile    string
-	GoogleCalendarID         string
-	GoogleLifeCalendarID     string
-	SMTPHost             string
-	SMTPPort             string
+	GoogleCredentialsFile string
+	GoogleCalendarID      string
+	GoogleLifeCalendarID  string
+	SMTPHost              string
+	SMTPPort              string
 	SMTPUsername          string
-	SMTPPassword         string
-	SMTPFrom             string
-	AdminEmails          []string
+	SMTPPassword          string
+	SMTPFrom              string
+	AdminEmails           []string
 }
 
 func loadConfig() (*Config, error) {
 	loadEnvFile(".env")
 
 	cfg := &Config{
-		Port:                 getEnv("PORT", "8080"),
-		BaseURL:              getEnv("BASE_URL", "https://guest-stay.jesco39.com"),
-		GuestPassword:        getEnv("GUEST_PASSWORD", ""),
+		Port:                  getEnv("PORT", "8080"),
+		BaseURL:               getEnv("BASE_URL", "https://guest-stay.jesco39.com"),
+		GuestPassword:         getEnv("GUEST_PASSWORD", ""),
 		AdminUsername:         getEnv("ADMIN_USERNAME", "admin"),
 		AdminPassword:         getEnv("ADMIN_PASSWORD", ""),
-		GoogleCredentialsFile:    getEnv("GOOGLE_CREDENTIALS_FILE", "./credentials.json"),
-		GoogleCalendarID:         getEnv("GOOGLE_CALENDAR_ID", ""),
-		GoogleLifeCalendarID:     getEnv("GOOGLE_LIFE_CALENDAR_ID", getEnv("GOOGLE_CALENDAR_ID", "")),
-		SMTPHost:             getEnv("SMTP_HOST", ""),
-		SMTPPort:             getEnv("SMTP_PORT", "587"),
-		SMTPUsername:         getEnv("SMTP_USERNAME", ""),
-		SMTPPassword:         getEnv("SMTP_PASSWORD", ""),
-		SMTPFrom:             getEnv("SMTP_FROM", ""),
+		GoogleCredentialsFile: getEnv("GOOGLE_CREDENTIALS_FILE", "./credentials.json"),
+		GoogleCalendarID:      getEnv("GOOGLE_CALENDAR_ID", ""),
+		GoogleLifeCalendarID:  getEnv("GOOGLE_LIFE_CALENDAR_ID", getEnv("GOOGLE_CALENDAR_ID", "")),
+		SMTPHost:              getEnv("SMTP_HOST", ""),
+		SMTPPort:              getEnv("SMTP_PORT", "587"),
+		SMTPUsername:          getEnv("SMTP_USERNAME", ""),
+		SMTPPassword:          getEnv("SMTP_PASSWORD", ""),
+		SMTPFrom:              getEnv("SMTP_FROM", ""),
 	}
 
 	if emails := getEnv("ADMIN_EMAILS", ""); emails != "" {
