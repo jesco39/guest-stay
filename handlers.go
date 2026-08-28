@@ -467,29 +467,34 @@ func (a *appHandler) rangeAvailability(checkIn, checkOut string, start, end time
 		return availability{}, fmt.Errorf("range spans %d months, over the %d month limit", len(months), maxMonthsPerRange)
 	}
 
+	// Each read is handled independently rather than skipping the rest of the month on
+	// an unconfigured calendar: the two helpers gate on the same condition today, but a
+	// `continue` here would silently drop host availability if that ever stopped being
+	// true. calendarRead is only ever cleared, never restored, so one unread month marks
+	// the whole range as unbacked — the safe direction for a value callers persist.
 	for _, m := range months {
 		dates, err := getGoogleBlockedDates(a.calService, a.cfg.GoogleLifeCalendarID, m)
-		if errors.Is(err, errCalendarNotConfigured) {
+		switch {
+		case errors.Is(err, errCalendarNotConfigured):
 			av.calendarRead = false
-			continue
-		}
-		if err != nil {
+		case err != nil:
 			return availability{}, fmt.Errorf("checking Google Calendar for %s: %w", m.Format("2006-01"), err)
-		}
-		for k, v := range dates {
-			av.googleBlocked[k] = v
+		default:
+			for k, v := range dates {
+				av.googleBlocked[k] = v
+			}
 		}
 
 		avail, err := getLifeCalendarAvailability(a.calService, a.cfg.GoogleLifeCalendarID, m)
-		if errors.Is(err, errCalendarNotConfigured) {
+		switch {
+		case errors.Is(err, errCalendarNotConfigured):
 			av.calendarRead = false
-			continue
-		}
-		if err != nil {
+		case err != nil:
 			return availability{}, fmt.Errorf("checking life calendar for %s: %w", m.Format("2006-01"), err)
-		}
-		for k, v := range avail {
-			av.life[k] = v
+		default:
+			for k, v := range avail {
+				av.life[k] = v
+			}
 		}
 	}
 

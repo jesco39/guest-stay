@@ -91,7 +91,11 @@ func (a *appHandler) handleApprove(w http.ResponseWriter, r *http.Request) {
 		// No calendar answered, so there are no known host absences to read. That is not
 		// evidence the hosts are home, and persisting it would downgrade a cat-sitting
 		// booking that is still one.
-		log.Printf("Calendar not configured; keeping stored type %q for booking %d", b.BookingType, id)
+		if b.BookingType == bookingTypeCatSitting {
+			// Only worth saying when there is a classification being protected; a regular
+			// booking would not have been rewritten either way.
+			log.Printf("Calendar not configured; keeping stored type %q for booking %d", b.BookingType, id)
+		}
 		catDates = nil
 	default:
 		bookingType := bookingTypeRegular

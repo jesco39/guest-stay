@@ -44,9 +44,6 @@ var lifeCalCache = &lifeCalendarCache{
 	entries: make(map[string]lifeCacheEntry),
 }
 
-// isBookingEvent reports whether an all-day event on the Life calendar was
-// created by this app for an approved booking, rather than being host travel.
-// titleLower must already be lowercased.
 // errCalendarNotConfigured reports that no Google Calendar is wired up. It is not a
 // failure — the app is designed to run without one, and the booking flow treats an
 // absent calendar as "nothing is blocked". It exists so that callers which *persist*
@@ -56,6 +53,9 @@ var lifeCalCache = &lifeCalendarCache{
 // downgrades cat-sitting bookings that are still cat-sitting.
 var errCalendarNotConfigured = errors.New("google calendar not configured")
 
+// isBookingEvent reports whether an all-day event on the Life calendar was
+// created by this app for an approved booking, rather than being host travel.
+// titleLower must already be lowercased.
 func isBookingEvent(titleLower string) bool {
 	return strings.HasPrefix(titleLower, "guest stay:") || strings.HasPrefix(titleLower, "cat sitting:")
 }

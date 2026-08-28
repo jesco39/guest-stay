@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -750,6 +751,63 @@ func TestBookingFlowWorksWithoutCalendar(t *testing.T) {
 	md := app.buildMonthData(2026, 9)
 	if md.AvailabilityUnknown {
 		t.Error("calendar view flagged an outage when no calendar is configured")
+	}
+}
+
+// safeBuf is a log sink that tolerates the notification goroutines the handlers spawn,
+// which keep logging after the handler returns.
+type safeBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *safeBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *safeBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+// TestCancelReportsNotConfiguredNotAnError pins the one behaviour that distinguishes the
+// errCalendarNotConfigured arm in handleAdminCancel from the generic error arm: both keep
+// the event id, so only the log tells them apart. Without this, nothing stops a refactor
+// from collapsing the two and reporting a normal unconfigured deployment as an error.
+func TestCancelReportsNotConfiguredNotAnError(t *testing.T) {
+	initTemplates()
+	db := newTestDB(t)
+	app := &appHandler{db: db, cfg: &Config{}}
+
+	b := &Booking{GuestName: "G", GuestEmail: "g@example.com", CheckIn: "2026-09-10", CheckOut: "2026-09-12"}
+	if err := insertBooking(db, b); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	if err := updateBookingStatus(db, b.ID, "approved"); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if err := setBookingCalendarEvent(db, b.ID, "evt-still-out-there"); err != nil {
+		t.Fatalf("set event: %v", err)
+	}
+
+	var buf safeBuf
+	orig := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(orig) })
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/cancel/"+strconv.FormatInt(b.ID, 10), nil)
+	req.SetPathValue("id", strconv.FormatInt(b.ID, 10))
+	app.handleAdminCancel(httptest.NewRecorder(), req)
+
+	out := buf.String()
+	if strings.Contains(out, "Error removing calendar event") {
+		t.Errorf("an unconfigured calendar was reported as a removal error:\n%s", out)
+	}
+	if !strings.Contains(out, "evt-still-out-there") {
+		t.Errorf("no notice naming the event left behind for manual removal:\n%s", out)
 	}
 }
 
