@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -99,10 +100,14 @@ func allDayEventsFrom(events *calendar.Events) []allDayEvent {
 func (e allDayEvent) eachDate(fn func(dateStr string)) {
 	start, err := time.Parse("2006-01-02", e.Start)
 	if err != nil {
+		// Dropping the event is the cheap failure, but for a booking event it means the
+		// dates go unblocked, so it must not be silent.
+		log.Printf("Skipping calendar event %q: unparseable start %q: %v", e.Summary, e.Start, err)
 		return
 	}
 	end, err := time.Parse("2006-01-02", e.End)
 	if err != nil {
+		log.Printf("Skipping calendar event %q: unparseable end %q: %v", e.Summary, e.End, err)
 		return
 	}
 	end = end.AddDate(0, 0, -1) // end date is exclusive in all-day events

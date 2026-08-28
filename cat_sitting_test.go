@@ -155,6 +155,11 @@ func TestCatSittingDayIsBookable(t *testing.T) {
 
 	// A day with no events at all.
 	check("2026-08-20", false, false)
+
+	// End is exclusive: the last day an event covers is the day before its End. Without
+	// this, dropping the end-date arithmetic passes the whole suite unnoticed.
+	check("2026-08-16", false, false) // wedding runs 08-13..08-15
+	check("2026-09-03", false, false) // booking runs 09-01..09-02
 }
 
 func TestIsBookingEvent(t *testing.T) {

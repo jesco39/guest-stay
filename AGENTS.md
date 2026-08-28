@@ -2,6 +2,31 @@
 
 Quick reference for working on this project with an AI assistant. For architecture and file-by-file descriptions, see the top-level `CLAUDE.md`.
 
+## Life calendar conventions
+
+Availability is derived from all-day events on the Google calendar named by
+`GOOGLE_LIFE_CALENDAR_ID`. Their titles are load-bearing — the app reads meaning out of
+them in `classifyEvent` (`calendar.go`), and both the blocked-dates read and the
+host-availability read go through that one function so they cannot disagree.
+
+| Event title | Meaning |
+|-------------|---------|
+| Starts `Guest Stay:` or `Cat Sitting:` | An approved booking. **The only thing that blocks dates.** Written by the app on approval; do not create by hand |
+| Names Jesse **and** Allison | Both hosts away — available for cat sitting |
+| Names only Jesse, or only Allison | That host away, the other home — available as a regular guest stay |
+| Names neither host | Both hosts away — available for cat sitting |
+
+Two consequences worth knowing before adding events to that calendar:
+
+- **Any all-day event that is not a booking opens the dates.** An event naming neither
+  host reads as travel, so a hold that is not travel — "contractors in", a visitor
+  staying over — would make those dates bookable rather than blocking them. Guest stays
+  belong in the app, which writes its own blocking event on approval.
+- **Host matching is substring-based** on "jesse" and "allison", case-insensitive. A
+  mistitled event silently misclassifies the day.
+
+Timed (non-all-day) events are ignored entirely.
+
 ## Deploy
 
 ```bash
