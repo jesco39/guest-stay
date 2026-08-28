@@ -178,7 +178,11 @@ input:focus, textarea:focus {
 }
 
 @media (hover: hover) {
-    .cal-day:hover:not(.blocked):not(.past):not(.empty) {
+    /* A plain available day. The state classes are excluded so this rule cannot
+       outrank the state hovers below — each :not() adds class-level specificity, and
+       without them this selector beats `.cal-day.jesse-away:hover` and every away day
+       hovers blue. */
+    .cal-day:hover:not(.blocked):not(.past):not(.empty):not(.jesse-away):not(.allison-away):not(.cat-sitting) {
         background: #e8f0fe;
     }
 
@@ -201,7 +205,7 @@ input:focus, textarea:focus {
 
 .cal-day.blocked {
     background: #e8eaed;
-    color: #80868b;
+    color: #5f6368;
     cursor: not-allowed;
 }
 
