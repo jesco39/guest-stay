@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/smtp"
+	"strings"
+	"time"
 )
 
 func sendEmail(cfg *Config, to, subject, body string) error {
@@ -26,14 +28,52 @@ func sendEmail(cfg *Config, to, subject, body string) error {
 	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
 }
 
+// groupDateRuns collapses a chronological list of dates into contiguous runs, so a
+// stay spanning two separate trips reads as two windows rather than one long span:
+// 2026-09-10, 2026-09-11, 2026-09-20 -> ["2026-09-10 to 2026-09-11", "2026-09-20"].
+func groupDateRuns(dates []string) []string {
+	var runs []string
+	for i := 0; i < len(dates); {
+		start, err := time.Parse("2006-01-02", dates[i])
+		if err != nil {
+			// Unparseable dates are passed through rather than dropped.
+			runs = append(runs, dates[i])
+			i++
+			continue
+		}
+
+		end, j := start, i+1
+		for ; j < len(dates); j++ {
+			next, err := time.Parse("2006-01-02", dates[j])
+			if err != nil || !next.Equal(end.AddDate(0, 0, 1)) {
+				break
+			}
+			end = next
+		}
+
+		if end.Equal(start) {
+			runs = append(runs, dates[i])
+		} else {
+			runs = append(runs, fmt.Sprintf("%s to %s", dates[i], end.Format("2006-01-02")))
+		}
+		i = j
+	}
+	return runs
+}
+
 // catSittingNote renders the cat-sitting section of a notification email, or an
 // empty string for a regular stay.
 func catSittingNote(b *Booking, catDates []string) string {
 	if b.BookingType != bookingTypeCatSitting || len(catDates) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("\nCat sitting: %s to %s (%d day(s))\n",
-		catDates[0], catDates[len(catDates)-1], len(catDates))
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "\nCat sitting (%d day(s)):\n", len(catDates))
+	for _, run := range groupDateRuns(catDates) {
+		fmt.Fprintf(&sb, "  - %s\n", run)
+	}
+	return sb.String()
 }
 
 func notifyAdminNewBooking(cfg *Config, b *Booking, catDates []string) {

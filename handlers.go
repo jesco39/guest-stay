@@ -87,13 +87,13 @@ func (a *appHandler) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *appHandler) handleGuestLogin(w http.ResponseWriter, r *http.Request) {
-	renderTemplate(w,"guest_login.html", nil)
+	renderTemplate(w, "guest_login.html", nil)
 }
 
 func (a *appHandler) handleGuestLoginPost(w http.ResponseWriter, r *http.Request) {
 	password := r.FormValue("password")
 	if password != a.cfg.GuestPassword {
-		renderTemplate(w,"guest_login.html", map[string]string{"Error": "Invalid password"})
+		renderTemplate(w, "guest_login.html", map[string]string{"Error": "Invalid password"})
 		return
 	}
 
@@ -289,13 +289,19 @@ func (a *appHandler) handleBookPost(w http.ResponseWriter, r *http.Request) {
 
 	go notifyAdminNewBooking(a.cfg, b, catDates)
 
-	renderTemplate(w,"booking_confirm.html", b)
+	renderTemplate(w, "booking_confirm.html", b)
 }
 
 func (a *appHandler) handleBookingForm(w http.ResponseWriter, r *http.Request) {
 	checkIn := r.URL.Query().Get("check_in")
 	checkOut := r.URL.Query().Get("check_out")
-	renderBookingForm(w, checkIn, checkOut, "", a.catSittingDates(checkIn, checkOut))
+
+	errMsg := ""
+	if _, _, err := parseStayRange(checkIn, checkOut); err != nil {
+		errMsg = err.Error()
+	}
+
+	renderBookingForm(w, checkIn, checkOut, errMsg, a.catSittingDates(checkIn, checkOut))
 }
 
 func (a *appHandler) handleBookingStatus(w http.ResponseWriter, r *http.Request) {
@@ -327,6 +333,41 @@ func dayState(dateStr string, booked, googleBlocked map[string]bool, lifeAvail m
 		catSitting = ha.JesseAway && ha.AllisonAway
 	}
 	return booked[dateStr] || googleBlocked[dateStr], catSitting
+}
+
+// Bounds on a requested stay. rangeAvailability fans out into two Google Calendar
+// round trips per month spanned, and the booking form takes its dates straight from
+// the query string, so an unbounded range would be a free amplification lever.
+const (
+	maxStayNights  = 90
+	maxMonthsAhead = 13
+)
+
+// parseStayRange validates a requested date range before any calendar work is done
+// for it. Returns a guest-facing error message.
+func parseStayRange(checkIn, checkOut string) (start, end time.Time, err error) {
+	start, err = time.Parse("2006-01-02", checkIn)
+	if err != nil {
+		return start, end, fmt.Errorf("Invalid check-in date")
+	}
+	end, err = time.Parse("2006-01-02", checkOut)
+	if err != nil {
+		return start, end, fmt.Errorf("Invalid check-out date")
+	}
+	if end.Before(start) {
+		return start, end, fmt.Errorf("Check-out must be after check-in")
+	}
+	if end.Sub(start) > maxStayNights*24*time.Hour {
+		return start, end, fmt.Errorf("Stays are limited to %d nights. Please choose a shorter range.", maxStayNights)
+	}
+
+	now := time.Now()
+	latest := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, maxMonthsAhead, 0)
+	if start.After(latest) {
+		return start, end, fmt.Errorf("Bookings can only be made up to %d months ahead.", maxMonthsAhead)
+	}
+
+	return start, end, nil
 }
 
 // rangeAvailability loads booked dates, Google-blocked dates, and host availability
@@ -364,16 +405,12 @@ func (a *appHandler) rangeAvailability(checkIn, checkOut string, start, end time
 // hosts are away, in chronological order. An empty result means the stay carries no
 // cat-sitting duty.
 func (a *appHandler) catSittingDates(checkIn, checkOut string) []string {
-	start, err := time.Parse("2006-01-02", checkIn)
+	start, end, err := parseStayRange(checkIn, checkOut)
 	if err != nil {
 		return nil
 	}
-	end, err := time.Parse("2006-01-02", checkOut)
-	if err != nil || end.Before(start) {
-		return nil
-	}
 
-	_, _, lifeAvail, err := a.rangeAvailability(checkIn, checkOut, start, end)
+	booked, googleBlocked, lifeAvail, err := a.rangeAvailability(checkIn, checkOut, start, end)
 	if err != nil {
 		log.Printf("Error determining cat-sitting dates for %s..%s: %v", checkIn, checkOut, err)
 		return nil
@@ -382,7 +419,9 @@ func (a *appHandler) catSittingDates(checkIn, checkOut string) []string {
 	var dates []string
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
-		if _, catSitting := dayState(dateStr, nil, nil, lifeAvail); catSitting {
+		// A blocked day is never part of the stay, so it carries no cat duty even if
+		// the Life calendar reads as both-hosts-away for it.
+		if blocked, catSitting := dayState(dateStr, booked, googleBlocked, lifeAvail); catSitting && !blocked {
 			dates = append(dates, dateStr)
 		}
 	}
@@ -390,13 +429,9 @@ func (a *appHandler) catSittingDates(checkIn, checkOut string) []string {
 }
 
 func (a *appHandler) validateNoBlockedDates(checkIn, checkOut string) error {
-	start, err := time.Parse("2006-01-02", checkIn)
+	start, end, err := parseStayRange(checkIn, checkOut)
 	if err != nil {
-		return fmt.Errorf("Invalid check-in date")
-	}
-	end, err := time.Parse("2006-01-02", checkOut)
-	if err != nil {
-		return fmt.Errorf("Invalid check-out date")
+		return err
 	}
 
 	bookedDates, googleBlocked, lifeAvail, err := a.rangeAvailability(checkIn, checkOut, start, end)

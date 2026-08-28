@@ -3,7 +3,9 @@ package main
 import (
 	"database/sql"
 	"io"
+	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -182,8 +184,8 @@ func TestTemplatesRender(t *testing.T) {
 		{"admin_dashboard.html", map[string]any{
 			"Pending":   []Booking{{GuestName: "Sitter", BookingType: bookingTypeCatSitting}},
 			"Approved":  []Booking{{GuestName: "Visitor", BookingType: bookingTypeRegular}},
-			"Denied":    []Booking{},
-			"Cancelled": []Booking{},
+			"Denied":    []Booking{{GuestName: "Denied Sitter", BookingType: bookingTypeCatSitting}},
+			"Cancelled": []Booking{{GuestName: "Cancelled Visitor", BookingType: bookingTypeRegular}},
 		}},
 		{"calendar.html", CalendarData{Months: []MonthData{{
 			Year:  2026,
@@ -205,6 +207,121 @@ func TestTemplatesRender(t *testing.T) {
 		if err := tmpl.ExecuteTemplate(io.Discard, "layout", c.data); err != nil {
 			t.Errorf("rendering %s: %v", c.page, err)
 		}
+	}
+}
+
+func TestParseStayRange(t *testing.T) {
+	// rangeAvailability makes two Google Calendar calls per month spanned, and the
+	// booking form takes its dates from the query string, so bounds are load-bearing.
+	farFuture := time.Now().AddDate(2, 0, 0).Format("2006-01-02")
+
+	tests := []struct {
+		name              string
+		checkIn, checkOut string
+		wantErr           bool
+	}{
+		{"ordinary stay", "2026-09-08", "2026-09-18", false},
+		{"single day", "2026-09-08", "2026-09-08", false},
+		{"check-out before check-in", "2026-09-18", "2026-09-08", true},
+		{"unparseable check-in", "not-a-date", "2026-09-08", true},
+		{"unparseable check-out", "2026-09-08", "not-a-date", true},
+		{"longer than the night cap", "2026-09-01", "2027-01-01", true},
+		{"unbounded range", "1900-01-01", "2200-01-01", true},
+		{"too far ahead", farFuture, farFuture, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := parseStayRange(tt.checkIn, tt.checkOut)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseStayRange(%q, %q) error = %v, wantErr %v", tt.checkIn, tt.checkOut, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGroupDateRuns(t *testing.T) {
+	tests := []struct {
+		name  string
+		dates []string
+		want  []string
+	}{
+		{"empty", nil, nil},
+		{"single day", []string{"2026-09-10"}, []string{"2026-09-10"}},
+		{"one contiguous run", []string{"2026-09-10", "2026-09-11", "2026-09-12"}, []string{"2026-09-10 to 2026-09-12"}},
+		{
+			"two separate trips in one stay",
+			[]string{"2026-09-10", "2026-09-11", "2026-09-20", "2026-09-21"},
+			[]string{"2026-09-10 to 2026-09-11", "2026-09-20 to 2026-09-21"},
+		},
+		{"run then a lone day", []string{"2026-09-10", "2026-09-11", "2026-09-20"}, []string{"2026-09-10 to 2026-09-11", "2026-09-20"}},
+		{"across a month boundary", []string{"2026-09-30", "2026-10-01"}, []string{"2026-09-30 to 2026-10-01"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := groupDateRuns(tt.dates)
+			if len(got) != len(tt.want) {
+				t.Fatalf("groupDateRuns(%v) = %v, want %v", tt.dates, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("run %d = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestCatSittingNoteNonContiguous guards the email against reporting two short trips
+// as one long span.
+func TestCatSittingNoteNonContiguous(t *testing.T) {
+	b := &Booking{BookingType: bookingTypeCatSitting}
+	note := catSittingNote(b, []string{"2026-09-10", "2026-09-11", "2026-09-20", "2026-09-21"})
+
+	for _, want := range []string{"4 day(s)", "2026-09-10 to 2026-09-11", "2026-09-20 to 2026-09-21"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("note missing %q:\n%s", want, note)
+		}
+	}
+	if strings.Contains(note, "2026-09-10 to 2026-09-21") {
+		t.Errorf("note collapsed two trips into one span:\n%s", note)
+	}
+
+	if got := catSittingNote(&Booking{BookingType: bookingTypeRegular}, []string{"2026-09-10"}); got != "" {
+		t.Errorf("regular booking got a cat-sitting note: %q", got)
+	}
+}
+
+// TestUpdateBookingType covers re-deriving the type at approval, when host travel has
+// been added or dropped since the request was submitted.
+func TestUpdateBookingType(t *testing.T) {
+	db := newTestDB(t)
+
+	b := &Booking{GuestName: "Visitor", GuestEmail: "v@example.com", CheckIn: "2026-09-10", CheckOut: "2026-09-12"}
+	if err := insertBooking(db, b); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	if err := updateBookingType(db, b.ID, bookingTypeCatSitting); err != nil {
+		t.Fatalf("updateBookingType: %v", err)
+	}
+	got, err := getBooking(db, b.ID)
+	if err != nil {
+		t.Fatalf("getBooking: %v", err)
+	}
+	if got.BookingType != bookingTypeCatSitting {
+		t.Errorf("type = %q, want %q", got.BookingType, bookingTypeCatSitting)
+	}
+	if got.Status != "pending" {
+		t.Errorf("status = %q, want pending — updateBookingType must not touch status", got.Status)
+	}
+
+	if err := updateBookingType(db, b.ID, bookingTypeRegular); err != nil {
+		t.Fatalf("updateBookingType back to regular: %v", err)
+	}
+	if got, _ := getBooking(db, b.ID); got.BookingType != bookingTypeRegular {
+		t.Errorf("type = %q, want %q", got.BookingType, bookingTypeRegular)
 	}
 }
 

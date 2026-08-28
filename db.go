@@ -222,6 +222,14 @@ func updateBookingStatus(db *sql.DB, id int64, status string) error {
 	return err
 }
 
+func updateBookingType(db *sql.DB, id int64, bookingType string) error {
+	_, err := db.Exec(
+		`UPDATE bookings SET booking_type = ?, updated_at = datetime('now') WHERE id = ?`,
+		bookingType, id,
+	)
+	return err
+}
+
 func setBookingCalendarEvent(db *sql.DB, id int64, eventID string) error {
 	_, err := db.Exec(
 		`UPDATE bookings SET calendar_event_id = ?, updated_at = datetime('now') WHERE id = ?`,

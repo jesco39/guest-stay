@@ -7,7 +7,7 @@ import (
 )
 
 func (a *appHandler) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
-	renderTemplate(w,"admin_login.html", nil)
+	renderTemplate(w, "admin_login.html", nil)
 }
 
 func (a *appHandler) handleAdminLoginPost(w http.ResponseWriter, r *http.Request) {
@@ -15,7 +15,7 @@ func (a *appHandler) handleAdminLoginPost(w http.ResponseWriter, r *http.Request
 	password := r.FormValue("password")
 
 	if username != a.cfg.AdminUsername || password != a.cfg.AdminPassword {
-		renderTemplate(w,"admin_login.html", map[string]string{"Error": "Invalid credentials"})
+		renderTemplate(w, "admin_login.html", map[string]string{"Error": "Invalid credentials"})
 		return
 	}
 
@@ -57,8 +57,20 @@ func (a *appHandler) handleApprove(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Determined before the booking lands on the calendar, so its own event cannot
-	// influence the host-availability read.
+	// influence the host-availability read. Host travel may have been added or dropped
+	// since the request was submitted, so re-derive the type and persist it — otherwise
+	// the stored type, the calendar event title, the badge, and the email disagree.
 	catDates := a.catSittingDates(b.CheckIn, b.CheckOut)
+	bookingType := bookingTypeRegular
+	if len(catDates) > 0 {
+		bookingType = bookingTypeCatSitting
+	}
+	if b.BookingType != bookingType {
+		if err := updateBookingType(a.db, id, bookingType); err != nil {
+			log.Printf("Error updating booking type for %d: %v", id, err)
+		}
+		b.BookingType = bookingType
+	}
 
 	if err := updateBookingStatus(a.db, id, "approved"); err != nil {
 		log.Printf("Error approving booking: %v", err)
