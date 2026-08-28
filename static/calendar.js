@@ -8,6 +8,23 @@ document.addEventListener('DOMContentLoaded', function() {
     var bookLink = document.getElementById('book-link');
     var sentinel = document.getElementById('cal-sentinel');
 
+    // Month headings pin below the legend header, so they need its height. It changes
+    // when the legend wraps and when the selection panel appears, so track it rather
+    // than measuring once.
+    var stickyHeader = document.querySelector('.cal-sticky');
+    if (stickyHeader) {
+        var publishHeaderHeight = function() {
+            var h = stickyHeader.getBoundingClientRect().height;
+            document.documentElement.style.setProperty('--cal-header-h', h + 'px');
+        };
+        publishHeaderHeight();
+        if (window.ResizeObserver) {
+            new ResizeObserver(publishHeaderHeight).observe(stickyHeader);
+        } else {
+            window.addEventListener('resize', publishHeaderHeight);
+        }
+    }
+
     // Scroll today into view on load
     if (sentinel) {
         var todayStr = sentinel.dataset.today;

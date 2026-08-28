@@ -43,11 +43,7 @@ const inheritedText = "#333"
 // blocked text at 3.06:1 — worse than the 4.63:1 it replaced, on the state a guest most
 // needs to read.
 func TestDayStateContrast(t *testing.T) {
-	css, err := os.ReadFile("static/style.css")
-	if err != nil {
-		t.Fatalf("reading style.css: %v", err)
-	}
-	sheet := string(css)
+	sheet := loadStylesheet(t)
 
 	const minAA = 4.5
 	for _, st := range dayStateColors {
@@ -77,13 +73,10 @@ func TestDayStateContrast(t *testing.T) {
 // This asserts the exclusions are present, not that a browser renders them — it cannot
 // catch a specificity regression introduced some other way, only the removal of this fix.
 func TestStateHoversAreReachable(t *testing.T) {
-	css, err := os.ReadFile("static/style.css")
-	if err != nil {
-		t.Fatalf("reading style.css: %v", err)
-	}
+	sheet := loadStylesheet(t)
 
 	re := regexp.MustCompile(`\.cal-day:hover(:not\([^)]*\))*`)
-	generic := re.FindString(string(css))
+	generic := re.FindString(sheet)
 	if generic == "" {
 		t.Fatal("no generic .cal-day:hover rule found — has it been renamed?")
 	}
@@ -109,7 +102,12 @@ func declaration(sheet, selector, prop string) (string, bool) {
 	if len(blocks) > 1 {
 		return "", false
 	}
-	for _, line := range strings.Split(blocks[0], ";") {
+	return declarationIn(blocks[0], prop)
+}
+
+// declarationIn pulls one property out of an already-isolated rule body.
+func declarationIn(body, prop string) (string, bool) {
+	for _, line := range strings.Split(body, ";") {
 		name, value, found := strings.Cut(line, ":")
 		if !found || strings.TrimSpace(name) != prop {
 			continue
@@ -133,11 +131,7 @@ func ruleBlocks(sheet, selector string) []string {
 // more than once at the top level. With duplicates the rendered value depends on source
 // order, and a reader — human or test — cannot tell which one wins.
 func TestNoDuplicateStyledSelectors(t *testing.T) {
-	css, err := os.ReadFile("static/style.css")
-	if err != nil {
-		t.Fatalf("reading style.css: %v", err)
-	}
-	sheet := string(css)
+	sheet := loadStylesheet(t)
 
 	seen := map[string]bool{}
 	for _, st := range dayStateColors {
@@ -153,14 +147,45 @@ func TestNoDuplicateStyledSelectors(t *testing.T) {
 	}
 }
 
+// TestOnlyOneStickyHeader guards the pinning. Two elements independently stuck to the
+// same offset overlap rather than stack — .selection used to carry its own
+// `position: sticky; top: 0`, so pinning the legend beside it would have put the
+// selection panel on top of the legend the moment a guest picked a check-in date.
+func TestOnlyOneStickyHeader(t *testing.T) {
+	sheet := loadStylesheet(t)
+
+	if pos, ok := declaration(sheet, ".cal-sticky", "position"); !ok || pos != "sticky" {
+		t.Errorf(".cal-sticky position = %q, want \"sticky\" — the legend is not pinned", pos)
+	}
+	// An opaque background, or the months scroll through the pinned header.
+	if bg, ok := declaration(sheet, ".cal-sticky", "background"); !ok || bg == "" || bg == "none" {
+		t.Errorf(".cal-sticky background = %q; without an opaque fill the calendar shows through it", bg)
+	}
+
+	// Anything else that pins must offset itself below the header, not sit at the same
+	// zero. .cal-month-header does exactly this via --cal-header-h, which calendar.js
+	// measures; pinning it at 0 as well would slide the month name under the legend.
+	re := regexp.MustCompile(`(?m)^([.#][\w.#:-]+)\s*\{([^}]*)\}`)
+	var atZero []string
+	for _, m := range re.FindAllStringSubmatch(sheet, -1) {
+		if !strings.Contains(m[2], "position: sticky") {
+			continue
+		}
+		top, _ := declarationIn(m[2], "top")
+		if top == "0" {
+			atZero = append(atZero, m[1])
+		}
+	}
+	if len(atZero) != 1 || atZero[0] != ".cal-sticky" {
+		t.Errorf("elements pinned to top: 0 = %v; want exactly [.cal-sticky] — anything else there overlaps the legend rather than stacking below it", atZero)
+	}
+}
+
 // TestLinkContrast covers text whose background is inherited from the page.
 func TestLinkContrast(t *testing.T) {
-	css, err := os.ReadFile("static/style.css")
-	if err != nil {
-		t.Fatalf("reading style.css: %v", err)
-	}
+	sheet := loadStylesheet(t)
 	for _, sel := range linkColorRules {
-		fg, ok := declaration(string(css), sel, "color")
+		fg, ok := declaration(sheet, sel, "color")
 		if !ok {
 			t.Fatalf("no unambiguous color declared for %q", sel)
 		}
@@ -168,6 +193,18 @@ func TestLinkContrast(t *testing.T) {
 			t.Errorf("%s: %s on %s is %.2f:1, below WCAG AA 4.5:1", sel, fg, pageBackground, r)
 		}
 	}
+}
+
+// loadStylesheet reads style.css with comments stripped. The declaration parser splits
+// on ';', so a property following a comment would otherwise be swallowed into it — which
+// silently hid .cal-month-header's own `top` from TestOnlyOneStickyHeader.
+func loadStylesheet(t *testing.T) string {
+	t.Helper()
+	css, err := os.ReadFile("static/style.css")
+	if err != nil {
+		t.Fatalf("reading style.css: %v", err)
+	}
+	return regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(string(css), "")
 }
 
 // contrastRatio implements the WCAG 2.x relative-luminance formula.

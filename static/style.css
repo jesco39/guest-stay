@@ -125,7 +125,10 @@ input:focus, textarea:focus {
 
 .cal-month-header {
     position: sticky;
-    top: 0;
+    /* Pins below the legend header rather than underneath it. The offset is measured in
+       calendar.js, because the legend wraps to a variable number of rows and the
+       selection panel changes the header's height when it appears. */
+    top: var(--cal-header-h, 0px);
     background: #fff;
     z-index: 2;
     padding: 0.5rem 0;
@@ -235,11 +238,19 @@ input:focus, textarea:focus {
     background: #d4e5f7;
 }
 
-.selection {
+/* Pinned calendar header. Months scroll beneath it, so it needs an opaque background:
+   the legend and selection panels have their own fills but there is a gap between them. */
+.cal-sticky {
     position: sticky;
     top: 0;
     z-index: 10;
-    margin-bottom: 1rem;
+    background: #fff;
+    padding: 0.75rem 0;
+    margin-bottom: 0.5rem;
+}
+
+.selection {
+    margin: 0.75rem 0 0;
     padding: 1rem;
     background: #e8f0fe;
     border-radius: 8px;
@@ -255,7 +266,7 @@ input:focus, textarea:focus {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem 1.1rem;
-    margin: 0 0 1rem;
+    margin: 0;
     padding: 0.75rem 0.9rem;
     background: #f7f8fa;
     border: 1px solid #e3e6ea;
