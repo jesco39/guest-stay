@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -81,11 +82,22 @@ func (a *appHandler) handleApprove(w http.ResponseWriter, r *http.Request) {
 	// Only on a successful read: an error here means "could not determine", and treating
 	// that as "no cat-sitting days" would persist a downgrade of a real cat-sitting
 	// booking on nothing more than a transient calendar failure.
-	catDates, err := a.catSittingDatesForBooking(b)
-	if err != nil {
+	catDates, calendarRead, err := a.catSittingDatesForBooking(b)
+	switch {
+	case err != nil:
 		log.Printf("Error re-deriving cat-sitting dates for booking %d, keeping stored type %q: %v", id, b.BookingType, err)
 		catDates = nil
-	} else {
+	case !calendarRead:
+		// No calendar answered, so there are no known host absences to read. That is not
+		// evidence the hosts are home, and persisting it would downgrade a cat-sitting
+		// booking that is still one.
+		if b.BookingType == bookingTypeCatSitting {
+			// Only worth saying when there is a classification being protected; a regular
+			// booking would not have been rewritten either way.
+			log.Printf("Calendar not configured; keeping stored type %q for booking %d", b.BookingType, id)
+		}
+		catDates = nil
+	default:
 		bookingType := bookingTypeRegular
 		if len(catDates) > 0 {
 			bookingType = bookingTypeCatSitting
@@ -101,9 +113,12 @@ func (a *appHandler) handleApprove(w http.ResponseWriter, r *http.Request) {
 	}
 
 	eventID, err := addBookingToCalendar(a.calService, a.cfg.GoogleLifeCalendarID, b)
-	if err != nil {
+	switch {
+	case errors.Is(err, errCalendarNotConfigured):
+		log.Println("Google Calendar not configured, skipping event creation")
+	case err != nil:
 		log.Printf("Error adding to calendar: %v", err)
-	} else if eventID != "" {
+	case eventID != "":
 		setBookingCalendarEvent(a.db, id, eventID)
 	}
 
@@ -132,11 +147,18 @@ func (a *appHandler) handleAdminCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := removeBookingFromCalendar(a.calService, a.cfg.GoogleLifeCalendarID, b); err != nil {
-		// The event is still out there. Keep the id so it can be retried or removed by
-		// hand, rather than clearing it and losing the only handle on it.
+	// Clear the stored event id only when an event was actually deleted. A no-op return
+	// from an unconfigured calendar is not a removal: the event is still out there, and
+	// the id is the only handle on it.
+	err = removeBookingFromCalendar(a.calService, a.cfg.GoogleLifeCalendarID, b)
+	switch {
+	case errors.Is(err, errCalendarNotConfigured):
+		if b.CalendarEventID != "" {
+			log.Printf("Calendar not configured; leaving event %q on booking %d for manual removal", b.CalendarEventID, id)
+		}
+	case err != nil:
 		log.Printf("Error removing calendar event: %v", err)
-	} else if b.CalendarEventID != "" {
+	case b.CalendarEventID != "":
 		if err := clearBookingCalendarEvent(a.db, id); err != nil {
 			log.Printf("Error clearing calendar event id for %d: %v", id, err)
 		}

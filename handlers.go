@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -153,14 +154,16 @@ func (a *appHandler) buildMonthData(year int, month time.Month) MonthData {
 		availabilityUnknown = true
 	}
 
+	// A calendar that was never configured is not an outage — the app is meant to run
+	// without one — so it must not raise the warning banner on every page load.
 	blockedDates, err := getGoogleBlockedDates(a.calService, a.cfg.GoogleLifeCalendarID, firstDay)
-	if err != nil {
+	if err != nil && !errors.Is(err, errCalendarNotConfigured) {
 		log.Printf("Error getting Google Calendar dates for %s: %v", firstDay.Format("2006-01"), err)
 		availabilityUnknown = true
 	}
 
 	lifeAvail, err := getLifeCalendarAvailability(a.calService, a.cfg.GoogleLifeCalendarID, firstDay)
-	if err != nil {
+	if err != nil && !errors.Is(err, errCalendarNotConfigured) {
 		log.Printf("Error getting Life Calendar availability for %s: %v", firstDay.Format("2006-01"), err)
 		availabilityUnknown = true
 	}
@@ -422,48 +425,81 @@ func parseStayRange(checkIn, checkOut string) (start, end time.Time, err error) 
 	return start, end, nil
 }
 
+// availability is what one range read produced, plus whether a Google Calendar actually
+// backed it.
+type availability struct {
+	booked        map[string]bool
+	googleBlocked map[string]bool
+	life          map[string]HostAvailability
+
+	// calendarRead reports that every calendar read was backed by a configured calendar.
+	// When false at least one read had nothing to read, so the calendar maps may be
+	// incomplete — and an absent host absence means "not known", not "the hosts are
+	// home". Anything that persists a classification must not act on them.
+	calendarRead bool
+}
+
 // rangeAvailability loads booked dates, Google-blocked dates, and host availability
 // covering every month spanned by start..end. excludeBookingID drops one booking's own
 // held dates from the booked set, so re-reading a booking that is already approved does
 // not see itself as a blocker; pass 0 to exclude nothing.
 //
-// Calendar errors are returned rather than logged and swallowed: callers decide whether
-// a stay is bookable and what type it is, and an empty availability map is
-// indistinguishable from "the hosts are home".
-func (a *appHandler) rangeAvailability(checkIn, checkOut string, start, end time.Time, excludeBookingID int64) (booked, googleBlocked map[string]bool, lifeAvail map[string]HostAvailability, err error) {
-	booked, err = getBookedDatesExcluding(a.db, checkIn, checkOut, excludeBookingID)
-	if err != nil {
-		return nil, nil, nil, err
+// Real calendar errors are returned rather than logged and swallowed: callers decide
+// whether a stay is bookable, and an empty availability map is indistinguishable from
+// "the hosts are home". An unconfigured calendar is not such an error — it is reported
+// through calendarRead instead, so deployments without Google Calendar keep working.
+func (a *appHandler) rangeAvailability(checkIn, checkOut string, start, end time.Time, excludeBookingID int64) (availability, error) {
+	av := availability{
+		googleBlocked: make(map[string]bool),
+		life:          make(map[string]HostAvailability),
+		calendarRead:  true,
 	}
+
+	booked, err := getBookedDatesExcluding(a.db, checkIn, checkOut, excludeBookingID)
+	if err != nil {
+		return availability{}, err
+	}
+	av.booked = booked
 
 	// Backstop for any caller that skips the guest-facing caps, so a stored range can
 	// never turn into an unbounded loop of calendar round trips.
 	months := monthsInRange(start, end)
 	if len(months) > maxMonthsPerRange {
-		return nil, nil, nil, fmt.Errorf("range spans %d months, over the %d month limit", len(months), maxMonthsPerRange)
+		return availability{}, fmt.Errorf("range spans %d months, over the %d month limit", len(months), maxMonthsPerRange)
 	}
 
-	googleBlocked = make(map[string]bool)
-	lifeAvail = make(map[string]HostAvailability)
+	// Each read is handled independently rather than skipping the rest of the month on
+	// an unconfigured calendar: the two helpers gate on the same condition today, but a
+	// `continue` here would silently drop host availability if that ever stopped being
+	// true. calendarRead is only ever cleared, never restored, so one unread month marks
+	// the whole range as unbacked — the safe direction for a value callers persist.
 	for _, m := range months {
 		dates, err := getGoogleBlockedDates(a.calService, a.cfg.GoogleLifeCalendarID, m)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("checking Google Calendar for %s: %w", m.Format("2006-01"), err)
-		}
-		for k, v := range dates {
-			googleBlocked[k] = v
+		switch {
+		case errors.Is(err, errCalendarNotConfigured):
+			av.calendarRead = false
+		case err != nil:
+			return availability{}, fmt.Errorf("checking Google Calendar for %s: %w", m.Format("2006-01"), err)
+		default:
+			for k, v := range dates {
+				av.googleBlocked[k] = v
+			}
 		}
 
 		avail, err := getLifeCalendarAvailability(a.calService, a.cfg.GoogleLifeCalendarID, m)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("checking life calendar for %s: %w", m.Format("2006-01"), err)
-		}
-		for k, v := range avail {
-			lifeAvail[k] = v
+		switch {
+		case errors.Is(err, errCalendarNotConfigured):
+			av.calendarRead = false
+		case err != nil:
+			return availability{}, fmt.Errorf("checking life calendar for %s: %w", m.Format("2006-01"), err)
+		default:
+			for k, v := range avail {
+				av.life[k] = v
+			}
 		}
 	}
 
-	return booked, googleBlocked, lifeAvail, nil
+	return av, nil
 }
 
 // monthsInRange lists the first day of every calendar month a range touches, inclusive.
@@ -481,20 +517,20 @@ func monthsInRange(start, end time.Time) []time.Time {
 // catSittingDatesIn resolves the cat-sitting days within an already-validated range,
 // in chronological order. A day that is blocked is never part of the stay, so it carries
 // no cat duty even when the Life calendar reads as both-hosts-away for it.
-func (a *appHandler) catSittingDatesIn(checkIn, checkOut string, start, end time.Time, excludeBookingID int64) ([]string, error) {
-	booked, googleBlocked, lifeAvail, err := a.rangeAvailability(checkIn, checkOut, start, end, excludeBookingID)
+func (a *appHandler) catSittingDatesIn(checkIn, checkOut string, start, end time.Time, excludeBookingID int64) ([]string, bool, error) {
+	av, err := a.rangeAvailability(checkIn, checkOut, start, end, excludeBookingID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	var dates []string
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		dateStr := d.Format("2006-01-02")
-		if blocked, catSitting := dayState(dateStr, booked, googleBlocked, lifeAvail); catSitting && !blocked {
+		if blocked, catSitting := dayState(dateStr, av.booked, av.googleBlocked, av.life); catSitting && !blocked {
 			dates = append(dates, dateStr)
 		}
 	}
-	return dates, nil
+	return dates, av.calendarRead, nil
 }
 
 // catSittingDatesForStay resolves the cat-sitting days for a range a guest is
@@ -506,7 +542,10 @@ func (a *appHandler) catSittingDatesForStay(checkIn, checkOut string) ([]string,
 	if err != nil {
 		return nil, err
 	}
-	return a.catSittingDatesIn(checkIn, checkOut, start, end, 0)
+	// calendarRead is ignored here: with no calendar there are no known host absences,
+	// so a new booking is correctly a regular stay. Nothing is being overwritten.
+	dates, _, err := a.catSittingDatesIn(checkIn, checkOut, start, end, 0)
+	return dates, err
 }
 
 // catSittingDatesForRequest is the display-only form of catSittingDatesForStay, for
@@ -521,7 +560,7 @@ func (a *appHandler) catSittingDatesForRequest(checkIn, checkOut string) []strin
 		return nil
 	}
 
-	dates, err := a.catSittingDatesIn(checkIn, checkOut, start, end, 0)
+	dates, _, err := a.catSittingDatesIn(checkIn, checkOut, start, end, 0)
 	if err != nil {
 		log.Printf("Error determining cat-sitting dates for %s..%s: %v", checkIn, checkOut, err)
 		return nil
@@ -533,19 +572,20 @@ func (a *appHandler) catSittingDatesForRequest(checkIn, checkOut string) []strin
 // the guest-facing caps, which apply to what may be requested rather than to what is
 // already on the books, and ignores the booking's own held dates so an already-approved
 // booking does not read as blocking itself. The error is returned rather than folded into
-// an empty result: callers persist the classification, and "could not determine" must not
-// be mistaken for "no cat-sitting days".
-func (a *appHandler) catSittingDatesForBooking(b *Booking) ([]string, error) {
+// an empty result, and the bool reports whether a calendar actually answered: callers
+// persist the classification, and neither "could not determine" nor "there was nothing to
+// read" may be mistaken for "no cat-sitting days".
+func (a *appHandler) catSittingDatesForBooking(b *Booking) ([]string, bool, error) {
 	start, err := time.Parse("2006-01-02", b.CheckIn)
 	if err != nil {
-		return nil, fmt.Errorf("parsing check-in %q: %w", b.CheckIn, err)
+		return nil, false, fmt.Errorf("parsing check-in %q: %w", b.CheckIn, err)
 	}
 	end, err := time.Parse("2006-01-02", b.CheckOut)
 	if err != nil {
-		return nil, fmt.Errorf("parsing check-out %q: %w", b.CheckOut, err)
+		return nil, false, fmt.Errorf("parsing check-out %q: %w", b.CheckOut, err)
 	}
 	if end.Before(start) {
-		return nil, fmt.Errorf("check-out %s precedes check-in %s", b.CheckOut, b.CheckIn)
+		return nil, false, fmt.Errorf("check-out %s precedes check-in %s", b.CheckOut, b.CheckIn)
 	}
 
 	return a.catSittingDatesIn(b.CheckIn, b.CheckOut, start, end, b.ID)
@@ -557,7 +597,7 @@ func (a *appHandler) validateNoBlockedDates(checkIn, checkOut string) error {
 		return err
 	}
 
-	bookedDates, googleBlocked, lifeAvail, err := a.rangeAvailability(checkIn, checkOut, start, end, 0)
+	av, err := a.rangeAvailability(checkIn, checkOut, start, end, 0)
 	if err != nil {
 		// Fail closed: without a calendar read there is no way to tell a free day from a
 		// blocked one, and accepting the booking risks a double booking.
@@ -572,7 +612,7 @@ func (a *appHandler) validateNoBlockedDates(checkIn, checkOut string) error {
 		if dateStr < today {
 			return fmt.Errorf("Some dates in your requested stay are in the past. Please choose different dates.")
 		}
-		if blocked, _ := dayState(dateStr, bookedDates, googleBlocked, lifeAvail); blocked {
+		if blocked, _ := dayState(dateStr, av.booked, av.googleBlocked, av.life); blocked {
 			return fmt.Errorf("Some dates in your requested stay are unavailable. Please choose different dates.")
 		}
 	}
