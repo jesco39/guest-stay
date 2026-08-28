@@ -3,6 +3,13 @@
 <div class="card">
     <p class="hint">Tap a check-in date, then a check-out date.</p>
 
+    {{if .AvailabilityUnknown}}
+    <div class="availability-warning">
+        We couldn't reach the calendar just now, so these dates may not be up to date.
+        You can still send a request &mdash; we'll confirm availability before approving it.
+    </div>
+    {{end}}
+
     <div id="selection" class="selection" style="display:none;">
         <p>Check-in: <strong id="sel-checkin"></strong></p>
         <p>Check-out: <strong id="sel-checkout"></strong></p>

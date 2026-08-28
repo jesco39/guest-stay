@@ -1,6 +1,7 @@
 {{define "month"}}
 <div class="cal-month">
     <h2 class="cal-month-header">{{monthName .Month}} {{.Year}}</h2>
+    {{if .AvailabilityUnknown}}<p class="availability-warning">Availability for this month couldn't be loaded.</p>{{end}}
     <div class="calendar-grid">
         <div class="cal-header">Sun</div>
         <div class="cal-header">Mon</div>

@@ -89,6 +89,12 @@ func notifyAdminNewBooking(cfg *Config, b *Booking, catDates []string) {
 	if b.BookingType == bookingTypeCatSitting {
 		subject = fmt.Sprintf("New Cat Sitting Request: %s", b.GuestName)
 	}
+	// The note already ends in a newline; a blank line keeps the list off the message.
+	note := catSittingNote(b, catDates)
+	if note != "" {
+		note += "\n"
+	}
+
 	body := fmt.Sprintf(`A new booking request has been submitted.
 
 Guest: %s
@@ -99,7 +105,7 @@ Check-out: %s
 
 Review and approve or deny this request:
 %s/admin/login`,
-		b.GuestName, b.GuestEmail, b.CheckIn, b.CheckOut, catSittingNote(b, catDates), b.Message, cfg.BaseURL)
+		b.GuestName, b.GuestEmail, b.CheckIn, b.CheckOut, note, b.Message, cfg.BaseURL)
 
 	for _, email := range cfg.AdminEmails {
 		if err := sendEmail(cfg, email, subject, body); err != nil {

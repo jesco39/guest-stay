@@ -121,12 +121,17 @@ type MonthData struct {
 	Month     time.Month
 	Days      []CalendarDay
 	PadBefore int
+	// AvailabilityUnknown reports that the calendar read failed, so the days below are
+	// not trustworthy. The booking POST fails closed in that case, and rendering the
+	// month as freely available with no warning would walk the guest into that error.
+	AvailabilityUnknown bool
 }
 
 type CalendarData struct {
-	Months        []MonthData
-	SentinelMonth string
-	Today         string
+	Months              []MonthData
+	SentinelMonth       string
+	Today               string
+	AvailabilityUnknown bool
 }
 
 func (a *appHandler) buildMonthData(year int, month time.Month) MonthData {
@@ -143,14 +148,18 @@ func (a *appHandler) buildMonthData(year int, month time.Month) MonthData {
 		bookedDates = make(map[string]bool)
 	}
 
+	availabilityUnknown := false
+
 	blockedDates, err := getGoogleBlockedDates(a.calService, a.cfg.GoogleLifeCalendarID, firstDay)
 	if err != nil {
 		log.Printf("Error getting Google Calendar dates for %s: %v", firstDay.Format("2006-01"), err)
+		availabilityUnknown = true
 	}
 
 	lifeAvail, err := getLifeCalendarAvailability(a.calService, a.cfg.GoogleLifeCalendarID, firstDay)
 	if err != nil {
 		log.Printf("Error getting Life Calendar availability for %s: %v", firstDay.Format("2006-01"), err)
+		availabilityUnknown = true
 	}
 
 	today := time.Now().Format("2006-01-02")
@@ -180,10 +189,11 @@ func (a *appHandler) buildMonthData(year int, month time.Month) MonthData {
 	}
 
 	return MonthData{
-		Year:      year,
-		Month:     month,
-		Days:      days,
-		PadBefore: int(firstDay.Weekday()),
+		Year:                year,
+		Month:               month,
+		Days:                days,
+		PadBefore:           int(firstDay.Weekday()),
+		AvailabilityUnknown: availabilityUnknown,
 	}
 }
 
@@ -197,11 +207,20 @@ func (a *appHandler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		months[i] = a.buildMonthData(m.Year(), m.Month())
 	}
 
+	availabilityUnknown := false
+	for _, m := range months {
+		if m.AvailabilityUnknown {
+			availabilityUnknown = true
+			break
+		}
+	}
+
 	sentinel := start.AddDate(0, 3, 0)
 	data := CalendarData{
-		Months:        months,
-		SentinelMonth: fmt.Sprintf("%d-%02d", sentinel.Year(), sentinel.Month()),
-		Today:         now.Format("2006-01-02"),
+		Months:              months,
+		SentinelMonth:       fmt.Sprintf("%d-%02d", sentinel.Year(), sentinel.Month()),
+		Today:               now.Format("2006-01-02"),
+		AvailabilityUnknown: availabilityUnknown,
 	}
 
 	renderTemplate(w, "calendar.html", data)
@@ -244,23 +263,33 @@ func (a *appHandler) handleBookPost(w http.ResponseWriter, r *http.Request) {
 	checkIn := r.FormValue("check_in")
 	checkOut := r.FormValue("check_out")
 
-	// Derived from the calendar, never from the form: a guest cannot talk their way
-	// out of cat-sitting duty (or into it) by editing the request.
-	catDates := a.catSittingDatesForRequest(checkIn, checkOut)
-
 	if name == "" || email == "" || checkIn == "" || checkOut == "" {
-		renderBookingForm(w, checkIn, checkOut, "Please fill in all required fields", catDates)
+		renderBookingForm(w, checkIn, checkOut, "Please fill in all required fields",
+			a.catSittingDatesForRequest(checkIn, checkOut))
 		return
 	}
 
 	if checkIn > checkOut {
-		renderBookingForm(w, checkIn, checkOut, "Check-out must be after check-in", catDates)
+		renderBookingForm(w, checkIn, checkOut, "Check-out must be after check-in", nil)
 		return
 	}
 
 	// Validate no blocked dates in the requested range
 	if err := a.validateNoBlockedDates(checkIn, checkOut); err != nil {
-		renderBookingForm(w, checkIn, checkOut, err.Error(), catDates)
+		renderBookingForm(w, checkIn, checkOut, err.Error(),
+			a.catSittingDatesForRequest(checkIn, checkOut))
+		return
+	}
+
+	// Derived from the calendar, never from the form: a guest cannot talk their way out
+	// of cat-sitting duty (or into it) by editing the request. Resolved after validation
+	// and failing closed, so a transient calendar error cannot quietly route a real
+	// cat-sitting stay through as regular with no acknowledgement.
+	catDates, err := a.catSittingDatesForStay(checkIn, checkOut)
+	if err != nil {
+		log.Printf("Error resolving cat-sitting dates for %s..%s: %v", checkIn, checkOut, err)
+		renderBookingForm(w, checkIn, checkOut,
+			"We couldn't verify availability just now. Please try again in a few minutes.", nil)
 		return
 	}
 
@@ -448,17 +477,25 @@ func (a *appHandler) catSittingDatesIn(checkIn, checkOut string, start, end time
 	return dates, nil
 }
 
-// catSittingDatesForRequest resolves the cat-sitting days for a range a guest is
-// requesting. It returns nil when the range is invalid or unresolvable — callers on this
-// path always run validateNoBlockedDates first, which refuses the booking outright when
-// availability cannot be read, so an empty result here can never wave a stay through.
-func (a *appHandler) catSittingDatesForRequest(checkIn, checkOut string) []string {
+// catSittingDatesForStay resolves the cat-sitting days for a range a guest is
+// requesting, within the guest-facing caps. The error is returned rather than folded
+// into an empty result: an empty list waives the acknowledgement requirement and stores
+// the stay as regular, so "could not determine" must never reach that decision.
+func (a *appHandler) catSittingDatesForStay(checkIn, checkOut string) ([]string, error) {
 	start, end, err := parseStayRange(checkIn, checkOut)
 	if err != nil {
-		return nil
+		return nil, err
 	}
+	return a.catSittingDatesIn(checkIn, checkOut, start, end, 0)
+}
 
-	dates, err := a.catSittingDatesIn(checkIn, checkOut, start, end, 0)
+// catSittingDatesForRequest is the display-only form of catSittingDatesForStay, for
+// rendering the booking form. It returns nil when the range is invalid or unresolvable,
+// which only means the notice is omitted from a page — never that a stay is classified.
+// Anything that decides a stay's type must call catSittingDatesForStay and handle the
+// error.
+func (a *appHandler) catSittingDatesForRequest(checkIn, checkOut string) []string {
+	dates, err := a.catSittingDatesForStay(checkIn, checkOut)
 	if err != nil {
 		log.Printf("Error determining cat-sitting dates for %s..%s: %v", checkIn, checkOut, err)
 		return nil

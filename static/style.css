@@ -402,6 +402,16 @@ body:has(.cal-footer) {
     font-style: italic;
 }
 
+.availability-warning {
+    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    border-left: 4px solid #f39c12;
+    background: #fef9e7;
+    color: #8a6d3b;
+    font-size: 0.9rem;
+}
+
 /* Cat sitting */
 .cat-sitting-notice {
     margin-bottom: 1rem;

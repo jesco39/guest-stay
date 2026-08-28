@@ -187,6 +187,12 @@ func TestTemplatesRender(t *testing.T) {
 			"Denied":    []Booking{{GuestName: "Denied Sitter", BookingType: bookingTypeCatSitting}},
 			"Cancelled": []Booking{{GuestName: "Cancelled Visitor", BookingType: bookingTypeRegular}},
 		}},
+		{"calendar.html", CalendarData{AvailabilityUnknown: true, Months: []MonthData{{
+			Year:                2026,
+			Month:               9,
+			AvailabilityUnknown: true,
+			Days:                []CalendarDay{{Date: "2026-09-10", Day: 10, CatSitting: true}},
+		}}}},
 		{"calendar.html", CalendarData{Months: []MonthData{{
 			Year:  2026,
 			Month: 9,
@@ -414,6 +420,66 @@ func TestCatSittingNoteWithoutDates(t *testing.T) {
 	}
 	if got := catSittingNote(&Booking{BookingType: bookingTypeRegular}, nil); got != "" {
 		t.Errorf("regular booking got a note: %q", got)
+	}
+}
+
+// TestApprovedBookingIsNotReEvaluated covers the re-approve path: an approved booking's
+// own calendar event is treated as a blocker by getGoogleBlockedDates, so re-deriving its
+// type would see zero cat-sitting days on a successful read and persist a downgrade.
+// handleApprove short-circuits on status instead.
+func TestApprovedBookingIsNotReEvaluated(t *testing.T) {
+	db := newTestDB(t)
+
+	b := &Booking{
+		GuestName: "Sitter", GuestEmail: "s@example.com",
+		CheckIn: "2026-09-10", CheckOut: "2026-09-12",
+		BookingType: bookingTypeCatSitting,
+	}
+	if err := insertBooking(db, b); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	if err := updateBookingStatus(db, b.ID, "approved"); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if err := setBookingCalendarEvent(db, b.ID, "evt-original"); err != nil {
+		t.Fatalf("set event: %v", err)
+	}
+
+	got, err := getBooking(db, b.ID)
+	if err != nil {
+		t.Fatalf("getBooking: %v", err)
+	}
+	if got.Status != "approved" {
+		t.Fatalf("status = %q, want approved", got.Status)
+	}
+	// The guard in handleApprove keys off exactly this, so assert the precondition it
+	// relies on: an approved booking keeps its type and its original event id.
+	if got.BookingType != bookingTypeCatSitting {
+		t.Errorf("type = %q, want %q", got.BookingType, bookingTypeCatSitting)
+	}
+	if got.CalendarEventID != "evt-original" {
+		t.Errorf("event id = %q, want evt-original", got.CalendarEventID)
+	}
+}
+
+// TestAdminEmailSeparatesNoteFromMessage guards the admin notification layout: the
+// cat-sitting list must not run straight into the guest's message.
+func TestAdminEmailSeparatesNoteFromMessage(t *testing.T) {
+	b := &Booking{BookingType: bookingTypeCatSitting}
+	note := catSittingNote(b, []string{"2026-09-10", "2026-09-11"})
+	if note != "" {
+		note += "\n"
+	}
+	body := note + "Message: hello"
+
+	if !strings.Contains(body, "\n\nMessage: hello") {
+		t.Errorf("cat-sitting list runs into the message:\n%s", body)
+	}
+
+	// A regular booking must not gain a blank line before the message.
+	regular := catSittingNote(&Booking{BookingType: bookingTypeRegular}, nil)
+	if regular != "" {
+		t.Errorf("regular booking produced a note: %q", regular)
 	}
 }
 

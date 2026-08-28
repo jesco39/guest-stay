@@ -56,6 +56,16 @@ func (a *appHandler) handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Approving is idempotent. A re-POST would create a second calendar event, orphan
+	// the stored event ID so /admin/cancel could never remove the original, and re-derive
+	// the type against the booking's own event — which getGoogleBlockedDates now treats
+	// as a blocker, yielding zero cat-sitting days on a successful read and persisting a
+	// cat_sitting -> regular downgrade.
+	if b.Status == "approved" {
+		http.Redirect(w, r, "/admin", http.StatusSeeOther)
+		return
+	}
+
 	// Determined before the booking lands on the calendar, so its own event cannot
 	// influence the host-availability read. Host travel may have been added or dropped
 	// since the request was submitted, so re-derive the type and persist it — otherwise
