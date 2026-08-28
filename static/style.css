@@ -183,15 +183,15 @@ input:focus, textarea:focus {
     }
 
     .cal-day.jesse-away:hover {
-        background: #ffe0b2;
+        background: #ffcc80;
     }
 
     .cal-day.allison-away:hover {
-        background: #c8e6c9;
+        background: #a5d6a7;
     }
 
     .cal-day.cat-sitting:hover {
-        background: #d1c4e9;
+        background: #b39ddb;
     }
 }
 
@@ -200,8 +200,8 @@ input:focus, textarea:focus {
 }
 
 .cal-day.blocked {
-    background: #fde8e8;
-    color: #c0392b;
+    background: #e8eaed;
+    color: #80868b;
     cursor: not-allowed;
 }
 
@@ -211,15 +211,15 @@ input:focus, textarea:focus {
 }
 
 .cal-day.jesse-away {
-    background: #fff3e0;
+    background: #ffe0b2;
 }
 
 .cal-day.allison-away {
-    background: #e8f5e9;
+    background: #c8e6c9;
 }
 
 .cal-day.cat-sitting {
-    background: #ede7f6;
+    background: #d1c4e9;
 }
 
 .cal-day.selected {
@@ -249,24 +249,29 @@ input:focus, textarea:focus {
 
 .legend {
     display: flex;
-    justify-content: center;
-    gap: 1.5rem;
-    margin-top: 1rem;
-    font-size: 0.85rem;
-    color: #888;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.1rem;
+    margin: 0 0 1rem;
+    padding: 0.75rem 0.9rem;
+    background: #f7f8fa;
+    border: 1px solid #e3e6ea;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    color: #444;
 }
 
 .legend-item {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.4rem;
 }
 
 .swatch {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     border-radius: 4px;
     display: inline-block;
+    flex-shrink: 0;
 }
 
 .swatch.available {
@@ -275,23 +280,23 @@ input:focus, textarea:focus {
 }
 
 .swatch.jesse-away {
-    background: #fff3e0;
+    background: #ffe0b2;
     border: 1px solid #e65100;
 }
 
 .swatch.allison-away {
-    background: #e8f5e9;
+    background: #c8e6c9;
     border: 1px solid #2e7d32;
 }
 
 .swatch.cat-sitting {
-    background: #ede7f6;
+    background: #d1c4e9;
     border: 1px solid #5e35b1;
 }
 
 .swatch.blocked {
-    background: #fde8e8;
-    border: 1px solid #c0392b;
+    background: #e8eaed;
+    border: 1px solid #9aa0a6;
 }
 
 /* Floating calendar footer */
@@ -316,20 +321,30 @@ body:has(.cal-footer) {
     padding: 0.6rem 1rem;
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
 }
 
-.cal-footer .legend {
-    flex: 1;
-    margin-top: 0;
-    justify-content: flex-start;
-    font-size: 0.8rem;
-    gap: 1rem;
+/* The house guide is the one thing guests need to find from here, so it reads as a
+   button rather than as another muted footer link. */
+.cal-footer-info {
+    padding: 0.5rem 1rem;
+    background: #4a90d9;
+    color: #fff;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.cal-footer-info:hover {
+    background: #3a7bc0;
 }
 
 .cal-footer-logout {
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     color: #888;
     text-decoration: none;
     white-space: nowrap;
