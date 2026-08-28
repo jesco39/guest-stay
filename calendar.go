@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -47,6 +47,15 @@ var lifeCalCache = &lifeCalendarCache{
 // isBookingEvent reports whether an all-day event on the Life calendar was
 // created by this app for an approved booking, rather than being host travel.
 // titleLower must already be lowercased.
+// errCalendarNotConfigured reports that no Google Calendar is wired up. It is not a
+// failure — the app is designed to run without one, and the booking flow treats an
+// absent calendar as "nothing is blocked". It exists so that callers which *persist*
+// something based on a read — clearing a stored event id, or re-deriving a booking type
+// — can tell "there was nothing to read" apart from "the read succeeded and found
+// nothing". Conflating those two clears event ids for events that still exist and
+// downgrades cat-sitting bookings that are still cat-sitting.
+var errCalendarNotConfigured = errors.New("google calendar not configured")
+
 func isBookingEvent(titleLower string) bool {
 	return strings.HasPrefix(titleLower, "guest stay:") || strings.HasPrefix(titleLower, "cat sitting:")
 }
@@ -62,7 +71,7 @@ func initCalendarService(credentialsFile string) (*calendar.Service, error) {
 
 func getGoogleBlockedDates(srv *calendar.Service, calendarID string, month time.Time) (map[string]bool, error) {
 	if srv == nil || calendarID == "" {
-		return nil, nil
+		return nil, errCalendarNotConfigured
 	}
 
 	key := month.Format("2006-01")
@@ -115,7 +124,12 @@ func getGoogleBlockedDates(srv *calendar.Service, calendarID string, month time.
 }
 
 func removeBookingFromCalendar(srv *calendar.Service, calendarID string, b *Booking) error {
-	if srv == nil || calendarID == "" || b.CalendarEventID == "" {
+	if srv == nil || calendarID == "" {
+		// Nothing was removed. If the booking carries an event id, that event is still
+		// on the calendar and the id is the only handle on it.
+		return errCalendarNotConfigured
+	}
+	if b.CalendarEventID == "" {
 		return nil
 	}
 
@@ -137,8 +151,7 @@ func removeBookingFromCalendar(srv *calendar.Service, calendarID string, b *Book
 
 func addBookingToCalendar(srv *calendar.Service, calendarID string, b *Booking) (string, error) {
 	if srv == nil || calendarID == "" {
-		log.Println("Google Calendar not configured, skipping event creation")
-		return "", nil
+		return "", errCalendarNotConfigured
 	}
 
 	// Check-out date needs +1 day because Google Calendar all-day end dates are exclusive
@@ -174,7 +187,7 @@ func addBookingToCalendar(srv *calendar.Service, calendarID string, b *Booking) 
 
 func getLifeCalendarAvailability(srv *calendar.Service, calendarID string, month time.Time) (map[string]HostAvailability, error) {
 	if srv == nil || calendarID == "" {
-		return nil, nil
+		return nil, errCalendarNotConfigured
 	}
 
 	key := month.Format("2006-01")

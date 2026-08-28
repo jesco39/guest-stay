@@ -595,13 +595,24 @@ func TestHandleApproveApprovesPending(t *testing.T) {
 		t.Fatalf("status = %q, want approved", first.Status)
 	}
 
+	// The booking must no longer be claimable. Comparing updated_at is not enough:
+	// datetime('now') has one-second granularity, so a second successful claim within the
+	// same second is invisible and the assertion passes even without the guard.
+	claimable, err := claimBookingForApproval(db, b.ID)
+	if err != nil {
+		t.Fatalf("claim after approval: %v", err)
+	}
+	if claimable {
+		t.Error("booking is still claimable after approval; the claim is not one-shot")
+	}
+
 	approve()
 	second, err := getBooking(db, b.ID)
 	if err != nil {
 		t.Fatalf("getBooking: %v", err)
 	}
-	if second.UpdatedAt != first.UpdatedAt {
-		t.Errorf("second approval mutated the booking: %v -> %v", first.UpdatedAt, second.UpdatedAt)
+	if second.BookingType != first.BookingType {
+		t.Errorf("second approval changed the type: %q -> %q", first.BookingType, second.BookingType)
 	}
 }
 
@@ -637,6 +648,108 @@ func TestAdminBookingBody(t *testing.T) {
 	}
 	if !strings.Contains(regular, "Check-out: 2026-10-03\nMessage: hi") {
 		t.Errorf("regular booking gained a blank line before the message:\n%s", regular)
+	}
+}
+
+// TestApproveKeepsTypeWithoutCalendar covers the ambiguity this ticket exists for: with
+// no calendar configured the availability read returns nothing, which is not evidence
+// that the hosts are home. Persisting it downgrades a cat-sitting booking that is still
+// one.
+func TestApproveKeepsTypeWithoutCalendar(t *testing.T) {
+	initTemplates()
+	db := newTestDB(t)
+	app := &appHandler{db: db, cfg: &Config{}} // no calService, no calendar id
+
+	b := &Booking{
+		GuestName: "Sitter", GuestEmail: "s@example.com",
+		CheckIn: "2026-09-10", CheckOut: "2026-09-12",
+		BookingType: bookingTypeCatSitting,
+	}
+	if err := insertBooking(db, b); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/approve/"+strconv.FormatInt(b.ID, 10), nil)
+	req.SetPathValue("id", strconv.FormatInt(b.ID, 10))
+	app.handleApprove(httptest.NewRecorder(), req)
+
+	got, err := getBooking(db, b.ID)
+	if err != nil {
+		t.Fatalf("getBooking: %v", err)
+	}
+	if got.Status != "approved" {
+		t.Errorf("status = %q, want approved", got.Status)
+	}
+	if got.BookingType != bookingTypeCatSitting {
+		t.Errorf("type = %q, want %q — an unconfigured calendar downgraded the booking",
+			got.BookingType, bookingTypeCatSitting)
+	}
+}
+
+// TestCancelKeepsEventIDWithoutCalendar covers the other half of the same ambiguity.
+// removeBookingFromCalendar returns without deleting when no calendar is configured, so
+// treating that as a successful removal drops the only handle on an event that is still
+// out there.
+func TestCancelKeepsEventIDWithoutCalendar(t *testing.T) {
+	initTemplates()
+	db := newTestDB(t)
+	app := &appHandler{db: db, cfg: &Config{}}
+
+	b := &Booking{GuestName: "G", GuestEmail: "g@example.com", CheckIn: "2026-09-10", CheckOut: "2026-09-12"}
+	if err := insertBooking(db, b); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	if err := updateBookingStatus(db, b.ID, "approved"); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if err := setBookingCalendarEvent(db, b.ID, "evt-still-out-there"); err != nil {
+		t.Fatalf("set event: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/cancel/"+strconv.FormatInt(b.ID, 10), nil)
+	req.SetPathValue("id", strconv.FormatInt(b.ID, 10))
+	app.handleAdminCancel(httptest.NewRecorder(), req)
+
+	got, err := getBooking(db, b.ID)
+	if err != nil {
+		t.Fatalf("getBooking: %v", err)
+	}
+	if got.Status != "cancelled" {
+		t.Errorf("status = %q, want cancelled", got.Status)
+	}
+	if got.CalendarEventID != "evt-still-out-there" {
+		t.Errorf("event id = %q, want it kept — nothing was removed, so the id is the only handle on the event",
+			got.CalendarEventID)
+	}
+}
+
+// TestBookingFlowWorksWithoutCalendar guards the regression this change could easily
+// introduce: the app is meant to run with no Google Calendar at all, so an unconfigured
+// calendar must not make validateNoBlockedDates fail closed and refuse every booking.
+func TestBookingFlowWorksWithoutCalendar(t *testing.T) {
+	db := newTestDB(t)
+	app := &appHandler{db: db, cfg: &Config{}}
+
+	checkIn := time.Now().AddDate(0, 0, 7).Format("2006-01-02")
+	checkOut := time.Now().AddDate(0, 0, 10).Format("2006-01-02")
+
+	if err := app.validateNoBlockedDates(checkIn, checkOut); err != nil {
+		t.Errorf("booking refused with no calendar configured: %v", err)
+	}
+
+	dates, err := app.catSittingDatesForStay(checkIn, checkOut)
+	if err != nil {
+		t.Errorf("catSittingDatesForStay errored with no calendar configured: %v", err)
+	}
+	if len(dates) != 0 {
+		t.Errorf("cat-sitting dates = %v, want none with no calendar", dates)
+	}
+
+	// The calendar view must not raise the outage banner just because there is no
+	// calendar, or every page load on such a deployment carries a warning.
+	md := app.buildMonthData(2026, 9)
+	if md.AvailabilityUnknown {
+		t.Error("calendar view flagged an outage when no calendar is configured")
 	}
 }
 
