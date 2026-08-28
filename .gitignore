@@ -2,3 +2,4 @@
 credentials.json
 guest-stay.db
 guest-stay
+.claude/settings.local.json
