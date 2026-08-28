@@ -3,6 +3,14 @@
 <div class="card">
     <p class="hint">Tap a check-in date, then a check-out date.</p>
 
+    <div class="legend">
+        <span class="legend-item"><span class="swatch available"></span> Both available</span>
+        <span class="legend-item"><span class="swatch jesse-away"></span> Jesse away</span>
+        <span class="legend-item"><span class="swatch allison-away"></span> Allison away</span>
+        <span class="legend-item"><span class="swatch cat-sitting"></span> Cat sitting</span>
+        <span class="legend-item"><span class="swatch blocked"></span> Unavailable</span>
+    </div>
+
     {{if .AvailabilityUnknown}}
     <div class="availability-warning">
         We couldn't reach the calendar just now, so these dates may not be up to date and
@@ -24,14 +32,7 @@
 
 <footer class="cal-footer">
     <div class="cal-footer-inner">
-        <div class="legend">
-            <span class="legend-item"><span class="swatch available"></span> Both available</span>
-            <span class="legend-item"><span class="swatch jesse-away"></span> Jesse away</span>
-            <span class="legend-item"><span class="swatch allison-away"></span> Allison away</span>
-            <span class="legend-item"><span class="swatch cat-sitting"></span> Cat sitting</span>
-            <span class="legend-item"><span class="swatch blocked"></span> Unavailable</span>
-        </div>
-        <a href="/info" class="cal-footer-info">Travel Info</a>
+        <a href="/info" class="cal-footer-info">Info</a>
         <a href="/logout" class="cal-footer-logout">Logout</a>
     </div>
 </footer>

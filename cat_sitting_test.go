@@ -910,6 +910,43 @@ func TestCancelReportsNotConfiguredNotAnError(t *testing.T) {
 	}
 }
 
+// TestCalendarLegendIsAboveTheMonths pins the legend's placement. It used to live in the
+// fixed footer, where guests did not find it; rendering it after the months would put it
+// back off the bottom of a long scrolling calendar.
+func TestCalendarLegendIsAboveTheMonths(t *testing.T) {
+	initTemplates()
+
+	var buf strings.Builder
+	data := CalendarData{Months: []MonthData{{
+		Year: 2026, Month: 9,
+		Days: []CalendarDay{{Date: "2026-09-10", Day: 10, CatSitting: true}},
+	}}}
+	if err := pageTemplates["calendar.html"].ExecuteTemplate(&buf, "layout", data); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	page := buf.String()
+
+	legend := strings.Index(page, `class="legend"`)
+	months := strings.Index(page, "cal-month")
+	footer := strings.Index(page, "cal-footer")
+	if legend < 0 || months < 0 || footer < 0 {
+		t.Fatalf("missing markers: legend=%d months=%d footer=%d", legend, months, footer)
+	}
+	if legend > months {
+		t.Error("legend renders after the months; guests have to scroll past the calendar to reach it")
+	}
+	if legend > footer {
+		t.Error("legend renders inside the footer, where it was previously overlooked")
+	}
+
+	// Every day state a guest can encounter needs a key.
+	for _, swatch := range []string{"available", "jesse-away", "allison-away", "cat-sitting", "blocked"} {
+		if !strings.Contains(page, "swatch "+swatch) {
+			t.Errorf("legend is missing the %q swatch", swatch)
+		}
+	}
+}
+
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := initDB(t.TempDir() + "/test.db")
