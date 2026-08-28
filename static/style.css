@@ -189,6 +189,10 @@ input:focus, textarea:focus {
     .cal-day.allison-away:hover {
         background: #c8e6c9;
     }
+
+    .cal-day.cat-sitting:hover {
+        background: #d1c4e9;
+    }
 }
 
 .cal-day.empty {
@@ -212,6 +216,10 @@ input:focus, textarea:focus {
 
 .cal-day.allison-away {
     background: #e8f5e9;
+}
+
+.cal-day.cat-sitting {
+    background: #ede7f6;
 }
 
 .cal-day.selected {
@@ -274,6 +282,11 @@ input:focus, textarea:focus {
 .swatch.allison-away {
     background: #e8f5e9;
     border: 1px solid #2e7d32;
+}
+
+.swatch.cat-sitting {
+    background: #ede7f6;
+    border: 1px solid #5e35b1;
 }
 
 .swatch.blocked {
@@ -387,6 +400,51 @@ body:has(.cal-footer) {
 .muted {
     color: #aaa;
     font-style: italic;
+}
+
+/* Cat sitting */
+.cat-sitting-notice {
+    margin-bottom: 1rem;
+    padding: 1rem;
+    border-radius: 8px;
+    border-left: 4px solid #5e35b1;
+    background: #ede7f6;
+    font-size: 0.9rem;
+}
+
+.cat-sitting-notice h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+    color: #4527a0;
+}
+
+.cat-sitting-notice ul {
+    margin: 0.5rem 0 0.75rem 1.1rem;
+    padding: 0;
+}
+
+.cat-sitting-ack {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.cat-sitting-ack input {
+    margin-top: 0.2rem;
+    flex-shrink: 0;
+}
+
+.badge-cat-sitting {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 20px;
+    background: #ede7f6;
+    color: #4527a0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    vertical-align: middle;
 }
 
 .text-center {

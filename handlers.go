@@ -111,6 +111,7 @@ type CalendarDay struct {
 	Day              int
 	Blocked          bool
 	Past             bool
+	CatSitting       bool
 	JesseAvailable   bool
 	AllisonAvailable bool
 }
@@ -165,15 +166,14 @@ func (a *appHandler) buildMonthData(year int, month time.Month) MonthData {
 			allisonAvail = !ha.AllisonAway
 		}
 
-		bothAway := !jesseAvail && !allisonAvail
-		blocked := bookedDates[dateStr] || blockedDates[dateStr] || bothAway
-		past := dateStr < today
+		blocked, catSitting := dayState(dateStr, bookedDates, blockedDates, lifeAvail)
 
 		days = append(days, CalendarDay{
 			Date:             dateStr,
 			Day:              d,
 			Blocked:          blocked,
-			Past:             past,
+			Past:             dateStr < today,
+			CatSitting:       catSitting,
 			JesseAvailable:   jesseAvail,
 			AllisonAvailable: allisonAvail,
 		})
@@ -226,6 +226,17 @@ func (a *appHandler) handleCalendarMonth(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// renderBookingForm renders the booking form, carrying the selected dates, any
+// error, and the cat-sitting dates that drive the acknowledgement checkbox.
+func renderBookingForm(w http.ResponseWriter, checkIn, checkOut, errMsg string, catDates []string) {
+	renderTemplate(w, "booking_form.html", map[string]any{
+		"Error":           errMsg,
+		"CheckIn":         checkIn,
+		"CheckOut":        checkOut,
+		"CatSittingDates": catDates,
+	})
+}
+
 func (a *appHandler) handleBookPost(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("guest_name"))
 	email := strings.TrimSpace(r.FormValue("guest_email"))
@@ -233,40 +244,42 @@ func (a *appHandler) handleBookPost(w http.ResponseWriter, r *http.Request) {
 	checkIn := r.FormValue("check_in")
 	checkOut := r.FormValue("check_out")
 
+	// Derived from the calendar, never from the form: a guest cannot talk their way
+	// out of cat-sitting duty (or into it) by editing the request.
+	catDates := a.catSittingDates(checkIn, checkOut)
+
 	if name == "" || email == "" || checkIn == "" || checkOut == "" {
-		renderTemplate(w,"booking_form.html", map[string]any{
-			"Error":    "Please fill in all required fields",
-			"CheckIn":  checkIn,
-			"CheckOut": checkOut,
-		})
+		renderBookingForm(w, checkIn, checkOut, "Please fill in all required fields", catDates)
 		return
 	}
 
 	if checkIn > checkOut {
-		renderTemplate(w,"booking_form.html", map[string]any{
-			"Error":    "Check-out must be after check-in",
-			"CheckIn":  checkIn,
-			"CheckOut": checkOut,
-		})
+		renderBookingForm(w, checkIn, checkOut, "Check-out must be after check-in", catDates)
 		return
 	}
 
 	// Validate no blocked dates in the requested range
 	if err := a.validateNoBlockedDates(checkIn, checkOut); err != nil {
-		renderTemplate(w,"booking_form.html", map[string]any{
-			"Error":    err.Error(),
-			"CheckIn":  checkIn,
-			"CheckOut": checkOut,
-		})
+		renderBookingForm(w, checkIn, checkOut, err.Error(), catDates)
+		return
+	}
+
+	if len(catDates) > 0 && r.FormValue("cat_sitting_ack") == "" {
+		renderBookingForm(w, checkIn, checkOut,
+			"Please confirm you'll look after the cats on the cat-sitting dates.", catDates)
 		return
 	}
 
 	b := &Booking{
-		GuestName:  name,
-		GuestEmail: email,
-		Message:    message,
-		CheckIn:    checkIn,
-		CheckOut:   checkOut,
+		GuestName:   name,
+		GuestEmail:  email,
+		Message:     message,
+		CheckIn:     checkIn,
+		CheckOut:    checkOut,
+		BookingType: bookingTypeRegular,
+	}
+	if len(catDates) > 0 {
+		b.BookingType = bookingTypeCatSitting
 	}
 	if err := insertBooking(a.db, b); err != nil {
 		log.Printf("Error inserting booking: %v", err)
@@ -274,7 +287,7 @@ func (a *appHandler) handleBookPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go notifyAdminNewBooking(a.cfg, b)
+	go notifyAdminNewBooking(a.cfg, b, catDates)
 
 	renderTemplate(w,"booking_confirm.html", b)
 }
@@ -282,10 +295,7 @@ func (a *appHandler) handleBookPost(w http.ResponseWriter, r *http.Request) {
 func (a *appHandler) handleBookingForm(w http.ResponseWriter, r *http.Request) {
 	checkIn := r.URL.Query().Get("check_in")
 	checkOut := r.URL.Query().Get("check_out")
-	renderTemplate(w,"booking_form.html", map[string]any{
-		"CheckIn":  checkIn,
-		"CheckOut": checkOut,
-	})
+	renderBookingForm(w, checkIn, checkOut, "", a.catSittingDates(checkIn, checkOut))
 }
 
 func (a *appHandler) handleBookingStatus(w http.ResponseWriter, r *http.Request) {
@@ -307,24 +317,28 @@ func (a *appHandler) handleCancelBooking(w http.ResponseWriter, r *http.Request)
 	http.Redirect(w, r, "/booking/"+uid, http.StatusSeeOther)
 }
 
-func (a *appHandler) validateNoBlockedDates(checkIn, checkOut string) error {
-	start, err := time.Parse("2006-01-02", checkIn)
-	if err != nil {
-		return fmt.Errorf("Invalid check-in date")
+// dayState derives, for a single date, whether it is unbookable and whether it
+// falls inside a cat-sitting window. Both hosts being away is what makes a day a
+// cat-sitting day: the house needs a sitter, so the day is open for booking rather
+// than blocked. Shared by the calendar view and booking validation so the two
+// cannot drift.
+func dayState(dateStr string, booked, googleBlocked map[string]bool, lifeAvail map[string]HostAvailability) (blocked, catSitting bool) {
+	if ha, ok := lifeAvail[dateStr]; ok {
+		catSitting = ha.JesseAway && ha.AllisonAway
 	}
-	end, err := time.Parse("2006-01-02", checkOut)
+	return booked[dateStr] || googleBlocked[dateStr], catSitting
+}
+
+// rangeAvailability loads booked dates, Google-blocked dates, and host availability
+// covering every month spanned by start..end.
+func (a *appHandler) rangeAvailability(checkIn, checkOut string, start, end time.Time) (booked, googleBlocked map[string]bool, lifeAvail map[string]HostAvailability, err error) {
+	booked, err = getBookedDates(a.db, checkIn, checkOut)
 	if err != nil {
-		return fmt.Errorf("Invalid check-out date")
+		return nil, nil, nil, err
 	}
 
-	bookedDates, err := getBookedDates(a.db, checkIn, checkOut)
-	if err != nil {
-		return fmt.Errorf("Unable to verify availability")
-	}
-
-	// Collect Google Calendar blocked dates and host availability for each month in the range
-	googleBlocked := make(map[string]bool)
-	lifeAvail := make(map[string]HostAvailability)
+	googleBlocked = make(map[string]bool)
+	lifeAvail = make(map[string]HostAvailability)
 	for m := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, time.Local); !m.After(end); m = m.AddDate(0, 1, 0) {
 		dates, err := getGoogleBlockedDates(a.calService, a.cfg.GoogleLifeCalendarID, m)
 		if err != nil {
@@ -343,6 +357,53 @@ func (a *appHandler) validateNoBlockedDates(checkIn, checkOut string) error {
 		}
 	}
 
+	return booked, googleBlocked, lifeAvail, nil
+}
+
+// catSittingDates returns the dates in checkIn..checkOut (inclusive) on which both
+// hosts are away, in chronological order. An empty result means the stay carries no
+// cat-sitting duty.
+func (a *appHandler) catSittingDates(checkIn, checkOut string) []string {
+	start, err := time.Parse("2006-01-02", checkIn)
+	if err != nil {
+		return nil
+	}
+	end, err := time.Parse("2006-01-02", checkOut)
+	if err != nil || end.Before(start) {
+		return nil
+	}
+
+	_, _, lifeAvail, err := a.rangeAvailability(checkIn, checkOut, start, end)
+	if err != nil {
+		log.Printf("Error determining cat-sitting dates for %s..%s: %v", checkIn, checkOut, err)
+		return nil
+	}
+
+	var dates []string
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		dateStr := d.Format("2006-01-02")
+		if _, catSitting := dayState(dateStr, nil, nil, lifeAvail); catSitting {
+			dates = append(dates, dateStr)
+		}
+	}
+	return dates
+}
+
+func (a *appHandler) validateNoBlockedDates(checkIn, checkOut string) error {
+	start, err := time.Parse("2006-01-02", checkIn)
+	if err != nil {
+		return fmt.Errorf("Invalid check-in date")
+	}
+	end, err := time.Parse("2006-01-02", checkOut)
+	if err != nil {
+		return fmt.Errorf("Invalid check-out date")
+	}
+
+	bookedDates, googleBlocked, lifeAvail, err := a.rangeAvailability(checkIn, checkOut, start, end)
+	if err != nil {
+		return fmt.Errorf("Unable to verify availability")
+	}
+
 	// Check each day in the range using the same logic as the calendar view
 	today := time.Now().Format("2006-01-02")
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
@@ -350,11 +411,7 @@ func (a *appHandler) validateNoBlockedDates(checkIn, checkOut string) error {
 		if dateStr < today {
 			return fmt.Errorf("Some dates in your requested stay are in the past. Please choose different dates.")
 		}
-		bothAway := false
-		if ha, ok := lifeAvail[dateStr]; ok {
-			bothAway = ha.JesseAway && ha.AllisonAway
-		}
-		if bookedDates[dateStr] || googleBlocked[dateStr] || bothAway {
+		if blocked, _ := dayState(dateStr, bookedDates, googleBlocked, lifeAvail); blocked {
 			return fmt.Errorf("Some dates in your requested stay are unavailable. Please choose different dates.")
 		}
 	}

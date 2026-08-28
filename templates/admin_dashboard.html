@@ -10,6 +10,7 @@
         <div class="booking-card pending">
             <div class="booking-info">
                 <strong>{{.GuestName}}</strong> ({{.GuestEmail}})
+                {{if eq .BookingType "cat_sitting"}}<span class="badge-cat-sitting">&#128049; Cat sitting</span>{{end}}
                 <br>{{.CheckIn}} &rarr; {{.CheckOut}}
                 {{if .Message}}<br><em>{{.Message}}</em>{{end}}
             </div>
@@ -35,6 +36,7 @@
         <div class="booking-card approved">
             <div class="booking-info">
                 <strong>{{.GuestName}}</strong> ({{.GuestEmail}})
+                {{if eq .BookingType "cat_sitting"}}<span class="badge-cat-sitting">&#128049; Cat sitting</span>{{end}}
                 <br>{{.CheckIn}} &rarr; {{.CheckOut}}
             </div>
             <div class="booking-actions">

@@ -26,22 +26,35 @@ func sendEmail(cfg *Config, to, subject, body string) error {
 	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
 }
 
-func notifyAdminNewBooking(cfg *Config, b *Booking) {
+// catSittingNote renders the cat-sitting section of a notification email, or an
+// empty string for a regular stay.
+func catSittingNote(b *Booking, catDates []string) string {
+	if b.BookingType != bookingTypeCatSitting || len(catDates) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("\nCat sitting: %s to %s (%d day(s))\n",
+		catDates[0], catDates[len(catDates)-1], len(catDates))
+}
+
+func notifyAdminNewBooking(cfg *Config, b *Booking, catDates []string) {
 	if len(cfg.AdminEmails) == 0 {
 		return
 	}
 	subject := fmt.Sprintf("New Guest Stay Request: %s", b.GuestName)
+	if b.BookingType == bookingTypeCatSitting {
+		subject = fmt.Sprintf("New Cat Sitting Request: %s", b.GuestName)
+	}
 	body := fmt.Sprintf(`A new booking request has been submitted.
 
 Guest: %s
 Email: %s
 Check-in: %s
 Check-out: %s
-Message: %s
+%sMessage: %s
 
 Review and approve or deny this request:
 %s/admin/login`,
-		b.GuestName, b.GuestEmail, b.CheckIn, b.CheckOut, b.Message, cfg.BaseURL)
+		b.GuestName, b.GuestEmail, b.CheckIn, b.CheckOut, catSittingNote(b, catDates), b.Message, cfg.BaseURL)
 
 	for _, email := range cfg.AdminEmails {
 		if err := sendEmail(cfg, email, subject, body); err != nil {
@@ -50,20 +63,25 @@ Review and approve or deny this request:
 	}
 }
 
-func notifyGuestApproved(cfg *Config, b *Booking) {
+func notifyGuestApproved(cfg *Config, b *Booking, catDates []string) {
 	subject := "Your Guest Stay Has Been Approved!"
+	closing := "We look forward to having you!"
+	if b.BookingType == bookingTypeCatSitting {
+		subject = "Your Cat Sitting Stay Has Been Approved!"
+		closing = "Thank you for looking after the cats while we're away!"
+	}
 	body := fmt.Sprintf(`Hi %s,
 
 Great news! Your stay has been approved.
 
 Check-in: %s
 Check-out: %s
-
-We look forward to having you!
+%s
+%s
 
 View your booking details:
 %s/booking/%s`,
-		b.GuestName, b.CheckIn, b.CheckOut, cfg.BaseURL, b.UUID)
+		b.GuestName, b.CheckIn, b.CheckOut, catSittingNote(b, catDates), closing, cfg.BaseURL, b.UUID)
 
 	if err := sendEmail(cfg, b.GuestEmail, subject, body); err != nil {
 		log.Printf("Error sending approval email to %s: %v", b.GuestEmail, err)

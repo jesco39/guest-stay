@@ -44,26 +44,53 @@ func initDB(path string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	// Backfill existing rows that have no UUID
+	// Migration: add booking_type column
+	_, err = db.Exec(`ALTER TABLE bookings ADD COLUMN booking_type TEXT NOT NULL DEFAULT 'regular'`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return nil, err
+	}
+
+	// Backfill existing rows that have no UUID. Collect the ids first: updating while
+	// the cursor is still open leaves the rows unwritten.
 	rows, err := db.Query("SELECT id FROM bookings WHERE uuid IS NULL OR uuid = ''")
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	var missingUUID []int64
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		db.Exec("UPDATE bookings SET uuid = ? WHERE id = ?", uuid.New().String(), id)
+		missingUUID = append(missingUUID, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	for _, id := range missingUUID {
+		if _, err := db.Exec("UPDATE bookings SET uuid = ? WHERE id = ?", uuid.New().String(), id); err != nil {
+			return nil, err
+		}
 	}
 
 	return db, nil
 }
 
+// Booking types. A stay is cat_sitting when its date range overlaps at least one
+// day on which both hosts are away.
+const (
+	bookingTypeRegular    = "regular"
+	bookingTypeCatSitting = "cat_sitting"
+)
+
 type Booking struct {
 	ID              int64
 	UUID            string
+	BookingType     string
 	GuestName       string
 	GuestEmail      string
 	Message         string
@@ -77,10 +104,13 @@ type Booking struct {
 
 func insertBooking(db *sql.DB, b *Booking) error {
 	b.UUID = uuid.New().String()
+	if b.BookingType == "" {
+		b.BookingType = bookingTypeRegular
+	}
 	res, err := db.Exec(
-		`INSERT INTO bookings (guest_name, guest_email, message, check_in, check_out, status, uuid)
-		 VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-		b.GuestName, b.GuestEmail, b.Message, b.CheckIn, b.CheckOut, b.UUID,
+		`INSERT INTO bookings (guest_name, guest_email, message, check_in, check_out, status, uuid, booking_type)
+		 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+		b.GuestName, b.GuestEmail, b.Message, b.CheckIn, b.CheckOut, b.UUID, b.BookingType,
 	)
 	if err != nil {
 		return err
@@ -89,19 +119,29 @@ func insertBooking(db *sql.DB, b *Booking) error {
 	return nil
 }
 
+// normalizeBookingType maps a scanned booking_type to a known value. Rows that
+// predate the column read back as regular.
+func normalizeBookingType(v sql.NullString) string {
+	if v.Valid && v.String == bookingTypeCatSitting {
+		return bookingTypeCatSitting
+	}
+	return bookingTypeRegular
+}
+
 func getBooking(db *sql.DB, id int64) (*Booking, error) {
 	b := &Booking{}
 	var createdAt, updatedAt string
-	var calEventID, uid sql.NullString
+	var calEventID, uid, bookingType sql.NullString
 	err := db.QueryRow(
-		`SELECT id, uuid, guest_name, guest_email, message, check_in, check_out, status, calendar_event_id, created_at, updated_at
+		`SELECT id, uuid, guest_name, guest_email, message, check_in, check_out, status, calendar_event_id, booking_type, created_at, updated_at
 		 FROM bookings WHERE id = ?`, id,
-	).Scan(&b.ID, &uid, &b.GuestName, &b.GuestEmail, &b.Message, &b.CheckIn, &b.CheckOut, &b.Status, &calEventID, &createdAt, &updatedAt)
+	).Scan(&b.ID, &uid, &b.GuestName, &b.GuestEmail, &b.Message, &b.CheckIn, &b.CheckOut, &b.Status, &calEventID, &bookingType, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
 	b.UUID = uid.String
 	b.CalendarEventID = calEventID.String
+	b.BookingType = normalizeBookingType(bookingType)
 	b.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
 	b.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
 	return b, nil
@@ -110,15 +150,16 @@ func getBooking(db *sql.DB, id int64) (*Booking, error) {
 func getBookingByUUID(db *sql.DB, uid string) (*Booking, error) {
 	b := &Booking{}
 	var createdAt, updatedAt string
-	var calEventID sql.NullString
+	var calEventID, bookingType sql.NullString
 	err := db.QueryRow(
-		`SELECT id, uuid, guest_name, guest_email, message, check_in, check_out, status, calendar_event_id, created_at, updated_at
+		`SELECT id, uuid, guest_name, guest_email, message, check_in, check_out, status, calendar_event_id, booking_type, created_at, updated_at
 		 FROM bookings WHERE uuid = ?`, uid,
-	).Scan(&b.ID, &b.UUID, &b.GuestName, &b.GuestEmail, &b.Message, &b.CheckIn, &b.CheckOut, &b.Status, &calEventID, &createdAt, &updatedAt)
+	).Scan(&b.ID, &b.UUID, &b.GuestName, &b.GuestEmail, &b.Message, &b.CheckIn, &b.CheckOut, &b.Status, &calEventID, &bookingType, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
 	b.CalendarEventID = calEventID.String
+	b.BookingType = normalizeBookingType(bookingType)
 	b.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
 	b.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
 	return b, nil
@@ -140,7 +181,7 @@ func cancelBooking(db *sql.DB, uid string) error {
 }
 
 func listBookings(db *sql.DB, status string) ([]Booking, error) {
-	query := `SELECT id, uuid, guest_name, guest_email, message, check_in, check_out, status, calendar_event_id, created_at, updated_at
+	query := `SELECT id, uuid, guest_name, guest_email, message, check_in, check_out, status, calendar_event_id, booking_type, created_at, updated_at
 		 FROM bookings`
 	var args []any
 	if status != "" {
@@ -159,12 +200,13 @@ func listBookings(db *sql.DB, status string) ([]Booking, error) {
 	for rows.Next() {
 		var b Booking
 		var createdAt, updatedAt string
-		var calEventID, uid sql.NullString
-		if err := rows.Scan(&b.ID, &uid, &b.GuestName, &b.GuestEmail, &b.Message, &b.CheckIn, &b.CheckOut, &b.Status, &calEventID, &createdAt, &updatedAt); err != nil {
+		var calEventID, uid, bookingType sql.NullString
+		if err := rows.Scan(&b.ID, &uid, &b.GuestName, &b.GuestEmail, &b.Message, &b.CheckIn, &b.CheckOut, &b.Status, &calEventID, &bookingType, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
 		b.UUID = uid.String
 		b.CalendarEventID = calEventID.String
+		b.BookingType = normalizeBookingType(bookingType)
 		b.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
 		b.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
 		bookings = append(bookings, b)

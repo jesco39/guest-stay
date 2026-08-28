@@ -56,6 +56,10 @@ func (a *appHandler) handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Determined before the booking lands on the calendar, so its own event cannot
+	// influence the host-availability read.
+	catDates := a.catSittingDates(b.CheckIn, b.CheckOut)
+
 	if err := updateBookingStatus(a.db, id, "approved"); err != nil {
 		log.Printf("Error approving booking: %v", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -69,7 +73,7 @@ func (a *appHandler) handleApprove(w http.ResponseWriter, r *http.Request) {
 		setBookingCalendarEvent(a.db, id, eventID)
 	}
 
-	go notifyGuestApproved(a.cfg, b)
+	go notifyGuestApproved(a.cfg, b, catDates)
 
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }

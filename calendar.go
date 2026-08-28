@@ -44,6 +44,13 @@ var lifeCalCache = &lifeCalendarCache{
 	entries: make(map[string]lifeCacheEntry),
 }
 
+// isBookingEvent reports whether an all-day event on the Life calendar was
+// created by this app for an approved booking, rather than being host travel.
+// titleLower must already be lowercased.
+func isBookingEvent(titleLower string) bool {
+	return strings.HasPrefix(titleLower, "guest stay:") || strings.HasPrefix(titleLower, "cat sitting:")
+}
+
 func initCalendarService(credentialsFile string) (*calendar.Service, error) {
 	ctx := context.Background()
 	srv, err := calendar.NewService(ctx, option.WithCredentialsFile(credentialsFile))
@@ -85,9 +92,11 @@ func getGoogleBlockedDates(srv *calendar.Service, calendarID string, month time.
 		if event.Start.Date == "" {
 			continue
 		}
-		// Skip personal travel events (handled by Life calendar availability logic)
+		// Skip personal travel events (handled by Life calendar availability logic).
+		// Booking events always block, even when the guest shares a host's name.
 		titleLower := strings.ToLower(event.Summary)
-		if strings.Contains(titleLower, "jesse") || strings.Contains(titleLower, "allison") {
+		if !isBookingEvent(titleLower) &&
+			(strings.Contains(titleLower, "jesse") || strings.Contains(titleLower, "allison")) {
 			continue
 		}
 		start, _ := time.Parse("2006-01-02", event.Start.Date)
@@ -136,8 +145,13 @@ func addBookingToCalendar(srv *calendar.Service, calendarID string, b *Booking) 
 	checkOut, _ := time.Parse("2006-01-02", b.CheckOut)
 	endDate := checkOut.AddDate(0, 0, 1).Format("2006-01-02")
 
+	summary := "Guest Stay: " + b.GuestName
+	if b.BookingType == bookingTypeCatSitting {
+		summary = "Cat Sitting: " + b.GuestName
+	}
+
 	event := &calendar.Event{
-		Summary:     "Guest Stay: " + b.GuestName,
+		Summary:     summary,
 		Description: b.Message,
 		Start:       &calendar.EventDateTime{Date: b.CheckIn},
 		End:         &calendar.EventDateTime{Date: endDate},
@@ -191,6 +205,13 @@ func getLifeCalendarAvailability(srv *calendar.Service, calendarID string, month
 		}
 
 		titleLower := strings.ToLower(event.Summary)
+
+		// Approved bookings are written to this same calendar. They are not host
+		// travel, and without this they would look like a both-hosts-away window.
+		if isBookingEvent(titleLower) {
+			continue
+		}
+
 		jesseMatch := strings.Contains(titleLower, "jesse")
 		allisonMatch := strings.Contains(titleLower, "allison")
 
