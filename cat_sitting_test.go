@@ -939,6 +939,14 @@ func TestCalendarLegendIsAboveTheMonths(t *testing.T) {
 		t.Error("legend renders inside the footer, where it was previously overlooked")
 	}
 
+	// The legend is pinned by its container, so it must be inside it.
+	sticky := strings.Index(page, `class="cal-sticky"`)
+	if sticky < 0 {
+		t.Error("no sticky container; the legend scrolls away as soon as the guest moves down the months")
+	} else if sticky > legend {
+		t.Error("legend renders outside the sticky container, so it is not pinned")
+	}
+
 	// Every day state a guest can encounter needs a key.
 	for _, swatch := range []string{"available", "jesse-away", "allison-away", "cat-sitting", "blocked"} {
 		if !strings.Contains(page, "swatch "+swatch) {
