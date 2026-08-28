@@ -81,21 +81,16 @@ func catSittingNote(b *Booking, catDates []string) string {
 	return sb.String()
 }
 
-func notifyAdminNewBooking(cfg *Config, b *Booking, catDates []string) {
-	if len(cfg.AdminEmails) == 0 {
-		return
-	}
-	subject := fmt.Sprintf("New Guest Stay Request: %s", b.GuestName)
-	if b.BookingType == bookingTypeCatSitting {
-		subject = fmt.Sprintf("New Cat Sitting Request: %s", b.GuestName)
-	}
+// adminBookingBody builds the admin notification body. Split out so its layout can be
+// asserted against what is actually sent.
+func adminBookingBody(cfg *Config, b *Booking, catDates []string) string {
 	// The note already ends in a newline; a blank line keeps the list off the message.
 	note := catSittingNote(b, catDates)
 	if note != "" {
 		note += "\n"
 	}
 
-	body := fmt.Sprintf(`A new booking request has been submitted.
+	return fmt.Sprintf(`A new booking request has been submitted.
 
 Guest: %s
 Email: %s
@@ -106,6 +101,18 @@ Check-out: %s
 Review and approve or deny this request:
 %s/admin/login`,
 		b.GuestName, b.GuestEmail, b.CheckIn, b.CheckOut, note, b.Message, cfg.BaseURL)
+}
+
+func notifyAdminNewBooking(cfg *Config, b *Booking, catDates []string) {
+	if len(cfg.AdminEmails) == 0 {
+		return
+	}
+	subject := fmt.Sprintf("New Guest Stay Request: %s", b.GuestName)
+	if b.BookingType == bookingTypeCatSitting {
+		subject = fmt.Sprintf("New Cat Sitting Request: %s", b.GuestName)
+	}
+
+	body := adminBookingBody(cfg, b, catDates)
 
 	for _, email := range cfg.AdminEmails {
 		if err := sendEmail(cfg, email, subject, body); err != nil {

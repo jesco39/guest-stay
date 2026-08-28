@@ -10,7 +10,10 @@ import (
 )
 
 func initDB(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path)
+	// busy_timeout makes a second writer wait for the lock instead of failing outright.
+	// Approval races on the conditional UPDATE in claimBookingForApproval, so without it
+	// a double-clicked Approve returns SQLITE_BUSY and a 500 rather than one clean win.
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, err
 	}
@@ -218,6 +221,36 @@ func updateBookingStatus(db *sql.DB, id int64, status string) error {
 	_, err := db.Exec(
 		`UPDATE bookings SET status = ?, updated_at = datetime('now') WHERE id = ?`,
 		status, id,
+	)
+	return err
+}
+
+// claimBookingForApproval atomically transitions a pending booking to approved and
+// reports whether this call is the one that won. The conditional UPDATE is the guard:
+// a read-then-write status check leaves a window — wide, because approval does calendar
+// round trips — in which a double-clicked Approve button creates a second calendar event,
+// orphans the stored event id, and re-derives the type against the booking's own event.
+// It also covers denied and cancelled bookings, which are not approvable either.
+func claimBookingForApproval(db *sql.DB, id int64) (bool, error) {
+	res, err := db.Exec(
+		`UPDATE bookings SET status = 'approved', updated_at = datetime('now')
+		 WHERE id = ? AND status = 'pending'`, id,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}
+
+// clearBookingCalendarEvent drops a stored event id after the event is gone, so a later
+// read cannot mistake a deleted event for one that still needs removing.
+func clearBookingCalendarEvent(db *sql.DB, id int64) error {
+	_, err := db.Exec(
+		`UPDATE bookings SET calendar_event_id = '', updated_at = datetime('now') WHERE id = ?`, id,
 	)
 	return err
 }

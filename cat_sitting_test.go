@@ -3,7 +3,11 @@ package main
 import (
 	"database/sql"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -175,12 +179,12 @@ func TestTemplatesRender(t *testing.T) {
 		page string
 		data any
 	}{
-		{"booking_form.html", map[string]any{
-			"CheckIn":         "2026-09-08",
-			"CheckOut":        "2026-09-18",
-			"CatSittingDates": []string{"2026-09-10", "2026-09-11"},
+		{"booking_form.html", bookingForm{
+			CheckIn: "2026-09-08", CheckOut: "2026-09-18",
+			GuestName: "Sitter", GuestEmail: "s@example.com", Message: "hello",
+			CatSittingDates: []string{"2026-09-10", "2026-09-11"},
 		}},
-		{"booking_form.html", map[string]any{"CheckIn": "2026-10-01", "CheckOut": "2026-10-03"}},
+		{"booking_form.html", bookingForm{CheckIn: "2026-10-01", CheckOut: "2026-10-03"}},
 		{"admin_dashboard.html", map[string]any{
 			"Pending":   []Booking{{GuestName: "Sitter", BookingType: bookingTypeCatSitting}},
 			"Approved":  []Booking{{GuestName: "Visitor", BookingType: bookingTypeRegular}},
@@ -423,12 +427,149 @@ func TestCatSittingNoteWithoutDates(t *testing.T) {
 	}
 }
 
-// TestApprovedBookingIsNotReEvaluated covers the re-approve path: an approved booking's
-// own calendar event is treated as a blocker by getGoogleBlockedDates, so re-deriving its
-// type would see zero cat-sitting days on a successful read and persist a downgrade.
-// handleApprove short-circuits on status instead.
-func TestApprovedBookingIsNotReEvaluated(t *testing.T) {
+// TestClaimBookingForApproval covers the guard that makes approval a one-shot: only a
+// pending booking can be claimed, and only once.
+func TestClaimBookingForApproval(t *testing.T) {
+	for _, tt := range []struct {
+		status string
+		want   bool
+	}{
+		{"pending", true},
+		{"approved", false},
+		{"denied", false},
+		{"cancelled", false},
+	} {
+		t.Run(tt.status, func(t *testing.T) {
+			db := newTestDB(t)
+			b := &Booking{GuestName: "G", GuestEmail: "g@example.com", CheckIn: "2026-09-10", CheckOut: "2026-09-12"}
+			if err := insertBooking(db, b); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+			if tt.status != "pending" {
+				if err := updateBookingStatus(db, b.ID, tt.status); err != nil {
+					t.Fatalf("set status: %v", err)
+				}
+			}
+
+			claimed, err := claimBookingForApproval(db, b.ID)
+			if err != nil {
+				t.Fatalf("claim: %v", err)
+			}
+			if claimed != tt.want {
+				t.Errorf("claim on %s booking = %v, want %v", tt.status, claimed, tt.want)
+			}
+
+			// A second claim never succeeds, whatever the first one did.
+			again, err := claimBookingForApproval(db, b.ID)
+			if err != nil {
+				t.Fatalf("second claim: %v", err)
+			}
+			if again {
+				t.Error("second claim succeeded; approval is not one-shot")
+			}
+		})
+	}
+}
+
+// TestConcurrentApprovalClaims is the reason the guard is a conditional UPDATE rather
+// than a status read: approval does calendar round trips, so a read-then-write check
+// leaves a wide window in which a double-clicked Approve button is admitted twice.
+func TestConcurrentApprovalClaims(t *testing.T) {
 	db := newTestDB(t)
+	b := &Booking{GuestName: "G", GuestEmail: "g@example.com", CheckIn: "2026-09-10", CheckOut: "2026-09-12"}
+	if err := insertBooking(db, b); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	const racers = 8
+	var wg sync.WaitGroup
+	results := make([]bool, racers)
+	errs := make([]error, racers)
+	start := make(chan struct{})
+
+	for i := range racers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			results[i], errs[i] = claimBookingForApproval(db, b.ID)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	claims := 0
+	for i := range racers {
+		if errs[i] != nil {
+			t.Fatalf("racer %d: %v", i, errs[i])
+		}
+		if results[i] {
+			claims++
+		}
+	}
+	if claims != 1 {
+		t.Errorf("%d concurrent claims succeeded, want exactly 1", claims)
+	}
+}
+
+// TestHandleApproveRejectsNonPending drives the real handler. A cancelled booking may
+// still have its own event on the Life calendar if removal failed, and re-deriving the
+// type against that event yields zero cat-sitting days — so approving it would persist a
+// cat_sitting -> regular downgrade and orphan the stored event id.
+func TestHandleApproveRejectsNonPending(t *testing.T) {
+	initTemplates()
+	db := newTestDB(t)
+	app := &appHandler{db: db, cfg: &Config{}}
+
+	for _, status := range []string{"cancelled", "denied", "approved"} {
+		t.Run(status, func(t *testing.T) {
+			b := &Booking{
+				GuestName: "Sitter", GuestEmail: "s@example.com",
+				CheckIn: "2026-09-10", CheckOut: "2026-09-12",
+				BookingType: bookingTypeCatSitting,
+			}
+			if err := insertBooking(db, b); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+			if err := updateBookingStatus(db, b.ID, status); err != nil {
+				t.Fatalf("set status: %v", err)
+			}
+			if err := setBookingCalendarEvent(db, b.ID, "evt-original"); err != nil {
+				t.Fatalf("set event: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/admin/approve/"+strconv.FormatInt(b.ID, 10), nil)
+			req.SetPathValue("id", strconv.FormatInt(b.ID, 10))
+			rec := httptest.NewRecorder()
+			app.handleApprove(rec, req)
+
+			if rec.Code != http.StatusSeeOther {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+			}
+
+			got, err := getBooking(db, b.ID)
+			if err != nil {
+				t.Fatalf("getBooking: %v", err)
+			}
+			if got.Status != status {
+				t.Errorf("status = %q, want %q — a %s booking must not be approvable", got.Status, status, status)
+			}
+			if got.BookingType != bookingTypeCatSitting {
+				t.Errorf("type = %q, want %q — approving a %s booking downgraded it", got.BookingType, bookingTypeCatSitting, status)
+			}
+			if got.CalendarEventID != "evt-original" {
+				t.Errorf("event id = %q, want evt-original — the original event was orphaned", got.CalendarEventID)
+			}
+		})
+	}
+}
+
+// TestHandleApproveApprovesPending is the positive counterpart: a pending booking is
+// approved exactly once, and a second POST changes nothing.
+func TestHandleApproveApprovesPending(t *testing.T) {
+	initTemplates()
+	db := newTestDB(t)
+	app := &appHandler{db: db, cfg: &Config{}}
 
 	b := &Booking{
 		GuestName: "Sitter", GuestEmail: "s@example.com",
@@ -438,48 +579,64 @@ func TestApprovedBookingIsNotReEvaluated(t *testing.T) {
 	if err := insertBooking(db, b); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	if err := updateBookingStatus(db, b.ID, "approved"); err != nil {
-		t.Fatalf("approve: %v", err)
-	}
-	if err := setBookingCalendarEvent(db, b.ID, "evt-original"); err != nil {
-		t.Fatalf("set event: %v", err)
+
+	approve := func() {
+		req := httptest.NewRequest(http.MethodPost, "/admin/approve/"+strconv.FormatInt(b.ID, 10), nil)
+		req.SetPathValue("id", strconv.FormatInt(b.ID, 10))
+		app.handleApprove(httptest.NewRecorder(), req)
 	}
 
-	got, err := getBooking(db, b.ID)
+	approve()
+	first, err := getBooking(db, b.ID)
 	if err != nil {
 		t.Fatalf("getBooking: %v", err)
 	}
-	if got.Status != "approved" {
-		t.Fatalf("status = %q, want approved", got.Status)
+	if first.Status != "approved" {
+		t.Fatalf("status = %q, want approved", first.Status)
 	}
-	// The guard in handleApprove keys off exactly this, so assert the precondition it
-	// relies on: an approved booking keeps its type and its original event id.
-	if got.BookingType != bookingTypeCatSitting {
-		t.Errorf("type = %q, want %q", got.BookingType, bookingTypeCatSitting)
+
+	approve()
+	second, err := getBooking(db, b.ID)
+	if err != nil {
+		t.Fatalf("getBooking: %v", err)
 	}
-	if got.CalendarEventID != "evt-original" {
-		t.Errorf("event id = %q, want evt-original", got.CalendarEventID)
+	if second.UpdatedAt != first.UpdatedAt {
+		t.Errorf("second approval mutated the booking: %v -> %v", first.UpdatedAt, second.UpdatedAt)
 	}
 }
 
-// TestAdminEmailSeparatesNoteFromMessage guards the admin notification layout: the
-// cat-sitting list must not run straight into the guest's message.
-func TestAdminEmailSeparatesNoteFromMessage(t *testing.T) {
-	b := &Booking{BookingType: bookingTypeCatSitting}
-	note := catSittingNote(b, []string{"2026-09-10", "2026-09-11"})
-	if note != "" {
-		note += "\n"
-	}
-	body := note + "Message: hello"
+// TestAdminBookingBody asserts the layout of the body that is actually sent, rather than
+// re-deriving it in the test.
+func TestAdminBookingBody(t *testing.T) {
+	cfg := &Config{BaseURL: "https://example.com"}
 
-	if !strings.Contains(body, "\n\nMessage: hello") {
-		t.Errorf("cat-sitting list runs into the message:\n%s", body)
+	cat := adminBookingBody(cfg, &Booking{
+		GuestName: "Sitter", GuestEmail: "s@example.com",
+		CheckIn: "2026-09-08", CheckOut: "2026-09-18",
+		Message: "hello there", BookingType: bookingTypeCatSitting,
+	}, []string{"2026-09-10", "2026-09-11", "2026-09-20"})
+
+	if !strings.Contains(cat, "Cat sitting (3 day(s)):") {
+		t.Errorf("missing cat-sitting heading:\n%s", cat)
+	}
+	if !strings.Contains(cat, "  - 2026-09-10 to 2026-09-11") || !strings.Contains(cat, "  - 2026-09-20") {
+		t.Errorf("missing contiguous runs:\n%s", cat)
+	}
+	if !strings.Contains(cat, "\n\nMessage: hello there") {
+		t.Errorf("cat-sitting list runs straight into the message:\n%s", cat)
 	}
 
-	// A regular booking must not gain a blank line before the message.
-	regular := catSittingNote(&Booking{BookingType: bookingTypeRegular}, nil)
-	if regular != "" {
-		t.Errorf("regular booking produced a note: %q", regular)
+	regular := adminBookingBody(cfg, &Booking{
+		GuestName: "Visitor", GuestEmail: "v@example.com",
+		CheckIn: "2026-10-01", CheckOut: "2026-10-03",
+		Message: "hi", BookingType: bookingTypeRegular,
+	}, nil)
+
+	if strings.Contains(regular, "Cat sitting") {
+		t.Errorf("regular booking mentions cat sitting:\n%s", regular)
+	}
+	if !strings.Contains(regular, "Check-out: 2026-10-03\nMessage: hi") {
+		t.Errorf("regular booking gained a blank line before the message:\n%s", regular)
 	}
 }
 

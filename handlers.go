@@ -142,13 +142,16 @@ func (a *appHandler) buildMonthData(year int, month time.Month) MonthData {
 	monthStart := firstDay.Format("2006-01-02")
 	monthEnd := lastDay.Format("2006-01-02")
 
+	availabilityUnknown := false
+
 	bookedDates, err := getBookedDates(a.db, monthStart, monthEnd)
 	if err != nil {
+		// Without this the month renders as fully available with approved bookings
+		// missing from the grid — the same failure mode as a calendar outage.
 		log.Printf("Error getting booked dates for %s: %v", firstDay.Format("2006-01"), err)
 		bookedDates = make(map[string]bool)
+		availabilityUnknown = true
 	}
-
-	availabilityUnknown := false
 
 	blockedDates, err := getGoogleBlockedDates(a.calService, a.cfg.GoogleLifeCalendarID, firstDay)
 	if err != nil {
@@ -245,39 +248,52 @@ func (a *appHandler) handleCalendarMonth(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// renderBookingForm renders the booking form, carrying the selected dates, any
-// error, and the cat-sitting dates that drive the acknowledgement checkbox.
-func renderBookingForm(w http.ResponseWriter, checkIn, checkOut, errMsg string, catDates []string) {
-	renderTemplate(w, "booking_form.html", map[string]any{
-		"Error":           errMsg,
-		"CheckIn":         checkIn,
-		"CheckOut":        checkOut,
-		"CatSittingDates": catDates,
-	})
+// bookingForm is what the booking page renders: the selected dates, whatever the guest
+// has already typed, any error, and the cat-sitting dates that drive the acknowledgement
+// checkbox. The typed fields are carried back so a re-render — including the fail-closed
+// "try again shortly" branch, which is nobody's fault — does not silently discard them.
+type bookingForm struct {
+	CheckIn         string
+	CheckOut        string
+	GuestName       string
+	GuestEmail      string
+	Message         string
+	Error           string
+	CatSittingDates []string
+}
+
+func renderBookingForm(w http.ResponseWriter, f bookingForm) {
+	renderTemplate(w, "booking_form.html", f)
 }
 
 func (a *appHandler) handleBookPost(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimSpace(r.FormValue("guest_name"))
-	email := strings.TrimSpace(r.FormValue("guest_email"))
-	message := strings.TrimSpace(r.FormValue("message"))
-	checkIn := r.FormValue("check_in")
-	checkOut := r.FormValue("check_out")
+	form := bookingForm{
+		CheckIn:    r.FormValue("check_in"),
+		CheckOut:   r.FormValue("check_out"),
+		GuestName:  strings.TrimSpace(r.FormValue("guest_name")),
+		GuestEmail: strings.TrimSpace(r.FormValue("guest_email")),
+		Message:    strings.TrimSpace(r.FormValue("message")),
+	}
 
-	if name == "" || email == "" || checkIn == "" || checkOut == "" {
-		renderBookingForm(w, checkIn, checkOut, "Please fill in all required fields",
-			a.catSittingDatesForRequest(checkIn, checkOut))
+	if form.GuestName == "" || form.GuestEmail == "" || form.CheckIn == "" || form.CheckOut == "" {
+		// The dates are still usable here, so keep the notice and its checkbox on screen.
+		form.CatSittingDates = a.catSittingDatesForRequest(form.CheckIn, form.CheckOut)
+		form.Error = "Please fill in all required fields"
+		renderBookingForm(w, form)
 		return
 	}
 
-	if checkIn > checkOut {
-		renderBookingForm(w, checkIn, checkOut, "Check-out must be after check-in", nil)
+	if form.CheckIn > form.CheckOut {
+		form.Error = "Check-out must be after check-in"
+		renderBookingForm(w, form)
 		return
 	}
 
 	// Validate no blocked dates in the requested range
-	if err := a.validateNoBlockedDates(checkIn, checkOut); err != nil {
-		renderBookingForm(w, checkIn, checkOut, err.Error(),
-			a.catSittingDatesForRequest(checkIn, checkOut))
+	if err := a.validateNoBlockedDates(form.CheckIn, form.CheckOut); err != nil {
+		// The range is unusable, so there is no notice worth rendering for it.
+		form.Error = err.Error()
+		renderBookingForm(w, form)
 		return
 	}
 
@@ -285,26 +301,27 @@ func (a *appHandler) handleBookPost(w http.ResponseWriter, r *http.Request) {
 	// of cat-sitting duty (or into it) by editing the request. Resolved after validation
 	// and failing closed, so a transient calendar error cannot quietly route a real
 	// cat-sitting stay through as regular with no acknowledgement.
-	catDates, err := a.catSittingDatesForStay(checkIn, checkOut)
+	catDates, err := a.catSittingDatesForStay(form.CheckIn, form.CheckOut)
 	if err != nil {
-		log.Printf("Error resolving cat-sitting dates for %s..%s: %v", checkIn, checkOut, err)
-		renderBookingForm(w, checkIn, checkOut,
-			"We couldn't verify availability just now. Please try again in a few minutes.", nil)
+		log.Printf("Error resolving cat-sitting dates for %s..%s: %v", form.CheckIn, form.CheckOut, err)
+		form.Error = "We couldn't verify availability just now. Please try again in a few minutes."
+		renderBookingForm(w, form)
 		return
 	}
+	form.CatSittingDates = catDates
 
 	if len(catDates) > 0 && r.FormValue("cat_sitting_ack") == "" {
-		renderBookingForm(w, checkIn, checkOut,
-			"Please confirm you'll look after the cats on the cat-sitting dates.", catDates)
+		form.Error = "Please confirm you'll look after the cats on the cat-sitting dates."
+		renderBookingForm(w, form)
 		return
 	}
 
 	b := &Booking{
-		GuestName:   name,
-		GuestEmail:  email,
-		Message:     message,
-		CheckIn:     checkIn,
-		CheckOut:    checkOut,
+		GuestName:   form.GuestName,
+		GuestEmail:  form.GuestEmail,
+		Message:     form.Message,
+		CheckIn:     form.CheckIn,
+		CheckOut:    form.CheckOut,
 		BookingType: bookingTypeRegular,
 	}
 	if len(catDates) > 0 {
@@ -322,15 +339,18 @@ func (a *appHandler) handleBookPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *appHandler) handleBookingForm(w http.ResponseWriter, r *http.Request) {
-	checkIn := r.URL.Query().Get("check_in")
-	checkOut := r.URL.Query().Get("check_out")
-
-	errMsg := ""
-	if _, _, err := parseStayRange(checkIn, checkOut); err != nil {
-		errMsg = err.Error()
+	form := bookingForm{
+		CheckIn:  r.URL.Query().Get("check_in"),
+		CheckOut: r.URL.Query().Get("check_out"),
 	}
 
-	renderBookingForm(w, checkIn, checkOut, errMsg, a.catSittingDatesForRequest(checkIn, checkOut))
+	if _, _, err := parseStayRange(form.CheckIn, form.CheckOut); err != nil {
+		form.Error = err.Error()
+	} else {
+		form.CatSittingDates = a.catSittingDatesForRequest(form.CheckIn, form.CheckOut)
+	}
+
+	renderBookingForm(w, form)
 }
 
 func (a *appHandler) handleBookingStatus(w http.ResponseWriter, r *http.Request) {
@@ -495,7 +515,13 @@ func (a *appHandler) catSittingDatesForStay(checkIn, checkOut string) ([]string,
 // Anything that decides a stay's type must call catSittingDatesForStay and handle the
 // error.
 func (a *appHandler) catSittingDatesForRequest(checkIn, checkOut string) []string {
-	dates, err := a.catSittingDatesForStay(checkIn, checkOut)
+	start, end, err := parseStayRange(checkIn, checkOut)
+	if err != nil {
+		// An unusable range is an ordinary guest mistake, not something to log.
+		return nil
+	}
+
+	dates, err := a.catSittingDatesIn(checkIn, checkOut, start, end, 0)
 	if err != nil {
 		log.Printf("Error determining cat-sitting dates for %s..%s: %v", checkIn, checkOut, err)
 		return nil

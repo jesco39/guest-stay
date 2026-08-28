@@ -56,15 +56,22 @@ func (a *appHandler) handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Approving is idempotent. A re-POST would create a second calendar event, orphan
-	// the stored event ID so /admin/cancel could never remove the original, and re-derive
-	// the type against the booking's own event — which getGoogleBlockedDates now treats
-	// as a blocker, yielding zero cat-sitting days on a successful read and persisting a
-	// cat_sitting -> regular downgrade.
-	if b.Status == "approved" {
+	// Claim the booking before doing any calendar work. Only a pending booking can be
+	// approved, and only once: an already-approved booking has its own event on the very
+	// calendar the type is re-derived from, and a cancelled one may still if removal
+	// failed — either way the re-read returns zero cat-sitting days and would persist a
+	// cat_sitting -> regular downgrade, alongside a duplicate event and an orphaned id.
+	claimed, err := claimBookingForApproval(a.db, id)
+	if err != nil {
+		log.Printf("Error approving booking %d: %v", id, err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	if !claimed {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 		return
 	}
+	b.Status = "approved"
 
 	// Determined before the booking lands on the calendar, so its own event cannot
 	// influence the host-availability read. Host travel may have been added or dropped
@@ -91,12 +98,6 @@ func (a *appHandler) handleApprove(w http.ResponseWriter, r *http.Request) {
 				b.BookingType = bookingType
 			}
 		}
-	}
-
-	if err := updateBookingStatus(a.db, id, "approved"); err != nil {
-		log.Printf("Error approving booking: %v", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
 	}
 
 	eventID, err := addBookingToCalendar(a.calService, a.cfg.GoogleLifeCalendarID, b)
@@ -132,7 +133,13 @@ func (a *appHandler) handleAdminCancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := removeBookingFromCalendar(a.calService, a.cfg.GoogleLifeCalendarID, b); err != nil {
+		// The event is still out there. Keep the id so it can be retried or removed by
+		// hand, rather than clearing it and losing the only handle on it.
 		log.Printf("Error removing calendar event: %v", err)
+	} else if b.CalendarEventID != "" {
+		if err := clearBookingCalendarEvent(a.db, id); err != nil {
+			log.Printf("Error clearing calendar event id for %d: %v", id, err)
+		}
 	}
 
 	go notifyGuestCancelled(a.cfg, b)
