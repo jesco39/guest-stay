@@ -432,9 +432,10 @@ type availability struct {
 	googleBlocked map[string]bool
 	life          map[string]HostAvailability
 
-	// calendarRead reports that a calendar was configured and answered. When false the
-	// calendar maps are empty because there was nothing to read, not because the hosts
-	// are home — anything that persists a classification must not act on that.
+	// calendarRead reports that every calendar read was backed by a configured calendar.
+	// When false at least one read had nothing to read, so the calendar maps may be
+	// incomplete — and an absent host absence means "not known", not "the hosts are
+	// home". Anything that persists a classification must not act on them.
 	calendarRead bool
 }
 
