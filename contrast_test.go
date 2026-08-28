@@ -19,7 +19,20 @@ var dayStateColors = []struct {
 	{".cal-day.jesse-away", ""},
 	{".cal-day.allison-away", ""},
 	{".cal-day.cat-sitting", ""},
+
+	// White on the brand blue. The Info button shipped unreadable because a duplicate
+	// rule overrode its colour, and the blue underneath was below AA regardless.
+	{".btn", "#fff"},
+	{".cal-day.selected", "#fff"},
+	{".cal-footer-info", "#fff"},
 }
+
+// pageBackground is the card background link text sits on.
+const pageBackground = "#fff"
+
+// linkColorRules are text-on-page-background pairs, where the background is inherited
+// from the card rather than declared on the rule itself.
+var linkColorRules = []string{"a"}
 
 // inheritedText is the page's default text colour, from `body`.
 const inheritedText = "#333"
@@ -85,12 +98,18 @@ func TestStateHoversAreReachable(t *testing.T) {
 // declaration pulls one property out of a rule's block. It deliberately matches the
 // selector exactly so a renamed rule fails loudly rather than silently passing.
 func declaration(sheet, selector, prop string) (string, bool) {
-	re := regexp.MustCompile(`(?m)^\` + regexp.QuoteMeta(selector)[1:] + `\s*\{([^}]*)\}`)
-	m := re.FindStringSubmatch(sheet)
-	if m == nil {
+	blocks := ruleBlocks(sheet, selector)
+	if len(blocks) == 0 {
 		return "", false
 	}
-	for _, line := range strings.Split(m[1], ";") {
+	// More than one definition means the winning value depends on source order, so this
+	// helper cannot honestly report what renders. That is exactly how the Info button
+	// shipped unreadable: a later duplicate overrode the colour while the background
+	// from the earlier rule survived.
+	if len(blocks) > 1 {
+		return "", false
+	}
+	for _, line := range strings.Split(blocks[0], ";") {
 		name, value, found := strings.Cut(line, ":")
 		if !found || strings.TrimSpace(name) != prop {
 			continue
@@ -98,6 +117,57 @@ func declaration(sheet, selector, prop string) (string, bool) {
 		return strings.TrimSpace(value), true
 	}
 	return "", false
+}
+
+// ruleBlocks returns the body of every top-level rule with exactly this selector.
+func ruleBlocks(sheet, selector string) []string {
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(selector) + `\s*\{([^}]*)\}`)
+	var out []string
+	for _, m := range re.FindAllStringSubmatch(sheet, -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
+// TestNoDuplicateStyledSelectors fails when a selector the contrast test reads is defined
+// more than once at the top level. With duplicates the rendered value depends on source
+// order, and a reader — human or test — cannot tell which one wins.
+func TestNoDuplicateStyledSelectors(t *testing.T) {
+	css, err := os.ReadFile("static/style.css")
+	if err != nil {
+		t.Fatalf("reading style.css: %v", err)
+	}
+	sheet := string(css)
+
+	seen := map[string]bool{}
+	for _, st := range dayStateColors {
+		seen[st.rule] = true
+	}
+	for _, sel := range linkColorRules {
+		seen[sel] = true
+	}
+	for sel := range seen {
+		if n := len(ruleBlocks(sheet, sel)); n > 1 {
+			t.Errorf("%s is defined %d times; whichever declaration renders depends on source order", sel, n)
+		}
+	}
+}
+
+// TestLinkContrast covers text whose background is inherited from the page.
+func TestLinkContrast(t *testing.T) {
+	css, err := os.ReadFile("static/style.css")
+	if err != nil {
+		t.Fatalf("reading style.css: %v", err)
+	}
+	for _, sel := range linkColorRules {
+		fg, ok := declaration(string(css), sel, "color")
+		if !ok {
+			t.Fatalf("no unambiguous color declared for %q", sel)
+		}
+		if r := contrastRatio(fg, pageBackground); r < 4.5 {
+			t.Errorf("%s: %s on %s is %.2f:1, below WCAG AA 4.5:1", sel, fg, pageBackground, r)
+		}
+	}
 }
 
 // contrastRatio implements the WCAG 2.x relative-luminance formula.
